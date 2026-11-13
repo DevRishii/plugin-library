@@ -1,0 +1,22 @@
+{
+  "name": "@local/theme-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Preset theme palettes (Night Owl, Tokyo Night Storm, Dracula, and more) layered over the light/dark scheme.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-theme", "@deepseek-ai/dsh-client-ui-settings"]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Restart app",
+    "description": "Restart DeepSeek Harness from the composer button or the /restart-app command, so plugin changes installed in this profile load."
+  }
+}

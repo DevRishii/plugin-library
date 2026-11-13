@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "会话费用",
+    "description": "在输入框统计栏中，按整段会话的 token 用量与 DeepSeek、Gemini、Claude、OpenAI 的公开价格显示可刷新的 token 与分项费用明细。"
+  }
+}

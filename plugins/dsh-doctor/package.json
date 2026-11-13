@@ -1,0 +1,27 @@
+{
+  "name": "@local/dsh-doctor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic preflight integrity checks for a DeepSeek Harness workspace.",
+  "bin": {
+    "dsh-doctor": "./bin/dsh-doctor.mjs"
+  },
+  "exports": {
+    ".": "./src/doctor.mjs",
+    "./registry": "./src/registry.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "doctor": "node ./bin/dsh-doctor.mjs",
+    "test": "node --test --test-isolation=none \"test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

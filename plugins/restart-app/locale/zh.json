@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "重启应用",
+    "description": "通过输入框按钮或 /restart-app 命令重启 DeepSeek Harness，使本 profile 中安装的插件更改生效。"
+  }
+}

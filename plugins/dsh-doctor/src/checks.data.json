@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "knownSettingsKeys": [
+    "theme",
+    "locale",
+    "editor",
+    "sandbox",
+    "plugins",
+    "paths",
+    "provider",
+    "model",
+    "telemetry"
+  ],
+  "checks": [
+    {
+      "id": "install.lockfile-missing",
+      "group": "install",
+      "severity": "error",
+      "harness": "*",
+      "title": "Lockfile present",
+      "why": "Without a lockfile, reinstalling resolves whatever the registry serves today instead of the versions that were tested."
+    },
+    {
+      "id": "install.node-modules-missing",
+      "group": "install",
+      "severity": "error",
+      "harness": "*",
+      "title": "Dependencies installed",
+      "why": "A declared dependency that is not on disk cannot be resolved by the loader, so plugins fail to load without naming the cause."
+    },
+    {
+      "id": "install.lockfile-drift",
+      "group": "install",
+      "severity": "error",
+      "harness": "*",
+      "title": "Lockfile matches package.json",
+      "why": "A dependency added to package.json but never locked installs on one machine and fails on a frozen-lockfile install."
+    },
+    {
+      "id": "install.duplicate-versions",
+      "group": "install",
+      "severity": "warn",
+      "harness": ">=0.2.0 <0.3.0",
+      "title": "One version per dependency",
+      "why": "Two resolved copies of one package give the harness two module instances, so plugins compare unequal across copies."
+    },
+    {
+      "id": "plugin.duplicate-id",
+      "group": "plugin",
+      "severity": "error",
+      "harness": ">=0.2.0",
+      "title": "Unique plugin ids",
+      "why": "Two packages declaring one plugin id means the loader keeps one and silently discards the other, which is how a UI control disappears."
+    },
+    {
+      "id": "plugin.engine-mismatch",
+      "group": "plugin",
+      "severity": "error",
+      "harness": ">=0.2.0 <0.4.0",
+      "title": "Plugin supports this harness",
+      "why": "A plugin whose engines.dsh range excludes the installed harness may still load and then behave against interfaces that moved."
+    },
+    {
+      "id": "plugin.client-bundle-stale",
+      "group": "plugin",
+      "severity": "warn",
+      "harness": "*",
+      "title": "Client bundle newer than its sources",
+      "why": "A client bundle older than its package manifest or sources renders the previous UI while the server runs the new code."
+    },
+    {
+      "id": "plugin.entry-missing",
+      "group": "plugin",
+      "severity": "warn",
+      "harness": "*",
+      "title": "Plugin entry file exists",
+      "why": "A plugin whose manifest points at an absent entry file fails at load time with a module-resolution error instead of a manifest error."
+    },
+    {
+      "id": "config.settings-parse",
+      "group": "config",
+      "severity": "error",
+      "harness": "*",
+      "title": "Settings file parses",
+      "why": "An unparsable settings file is dropped as a whole, so every setting silently reverts to its default."
+    },
+    {
+      "id": "config.settings-unknown-key",
+      "group": "config",
+      "severity": "warn",
+      "harness": ">=0.2.0 <0.5.0",
+      "title": "Settings keys are known",
+      "why": "An unknown key is accepted and ignored, so a setting the operator believes is active never takes effect."
+    },
+    {
+      "id": "config.settings-stale-path",
+      "group": "config",
+      "severity": "warn",
+      "harness": "*",
+      "title": "Settings paths resolve",
+      "why": "An absolute path that no longer exists makes the owning feature fail on first use rather than at startup."
+    },
+    {
+      "id": "state.orphaned-lock",
+      "group": "state",
+      "severity": "warn",
+      "harness": "*",
+      "title": "No orphaned locks",
+      "why": "A lock left by a crashed run blocks the next run from claiming the same resource and reads as a hang, not an error."
+    },
+    {
+      "id": "state.session-store-size",
+      "group": "state",
+      "severity": "info",
+      "harness": ">=0.2.0",
+      "title": "Session store is bounded",
+      "why": "An unbounded session store slows session listing and makes pruning a surprise later instead of a scheduled task now."
+    },
+    {
+      "id": "workspace.gitignore-missing-state",
+      "group": "workspace",
+      "severity": "warn",
+      "harness": "*",
+      "title": "Harness state is ignored",
+      "why": "Committed .dsh state carries session logs and lock files between machines and produces conflicts on every checkout."
+    },
+    {
+      "id": "workspace.large-file",
+      "group": "workspace",
+      "severity": "info",
+      "harness": "*",
+      "title": "No oversized workspace files",
+      "why": "A large file at the workspace root is read by workspace scans and slows every session that walks the tree."
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "plugin-library",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Private library of DeepSeek Harness plugins, agent presets, and reusable desktop-agent features.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/test-all.mjs",
+    "verify": "node scripts/verify.mjs",
+    "check": "node scripts/verify.mjs && node scripts/test-all.mjs",
+    "link": "node scripts/link-profile.mjs",
+    "link:dry": "node scripts/link-profile.mjs --dry-run",
+    "doctor": "node plugins/dsh-doctor/bin/dsh-doctor.mjs",
+    "receipt": "node plugins/session-diff/bin/dsh-receipt.mjs"
+  }
+}

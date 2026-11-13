@@ -1,0 +1,12 @@
+{
+  "name": "@local/fleet-preset",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fleet agent preset: an orchestration-first mode that sharpens a prompt into a delegation brief and fans out subagents with tiered models.",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

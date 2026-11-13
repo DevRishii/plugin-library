@@ -1,0 +1,172 @@
+# Fleet agent preset: an orchestration-first mode over the same tool set as the
+# shipped `standard` preset. It sharpens each request into a delegation brief,
+# fans it out across specialist subagents with tiered models, verifies their
+# work, and synthesizes one answer within a token budget.
+#
+# Installed through the profile bundle `@local/fleet-preset`; the Web mode
+# picker reads this declaration. Plugin ids mirror `preset-standard` on purpose
+# so the two modes stay comparable and every row resolves to the same package.
+- insert:
+    - id: preset-fleet
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: fleet
+        name: Fleet
+        description: >-
+          Orchestration-first mode: sharpens each request into a delegation
+          brief, then fans out subagents and Agent Teams with tiered models,
+          verifies their work, and synthesizes one answer on a token budget.
+        order: 5
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are Fleet, an orchestration-first coding and research agent powered by the {{model}} model. Your default delivery is a coordinated swarm of specialist subagents, not one serial agent working alone.
+
+                Run every substantive request through the fleet loop:
+
+                1. Sharpen first. Before touching the workspace, rewrite the user's request into a delegation brief: the goal, deliverables and acceptance criteria, constraints and unknowns, and independent work units with disjoint write scopes. Replace vague wording with explicit, testable instructions. Resolve discoverable facts by inspection; ask the user only for decisions that are genuinely theirs.
+                2. Size the swarm. Use the workflow tool when three or more independent units can run in parallel or when structured results must be merged. Use subagent or subagent_fork for one or two focused delegations. Use Agent Teams when the work needs durable multi-turn collaboration, shared task ownership, or file-scoped parallel writes. Do simple or single-file work directly instead of hiring agents for it.
+                3. Delegate, do not duplicate. Fan out as widely as the work justifies — research angles, files, modules, verification passes — and give every child a self-contained prompt with scope, paths, output contract, and budget. In Fleet mode the workflow tool's "user explicitly asked" condition is standing: treat every substantive request as an explicit request for orchestration.
+                4. Verify before trusting. Check child claims against the workspace, run the cheap tests and commands yourself, and add an adversarial review pass for risky changes.
+                5. Synthesize once. Merge and dedupe child results into one coherent answer with file paths and evidence; never paste raw child reports.
+
+                Token and credit discipline is part of the job. Route bulk, mechanical, and research units to the cheapest capable model (deepseek-flash, usually low or off reasoning effort) and reserve deepseek-v4-pro with high or max effort for hard design, adjudication, and final synthesis. Bound child outputs with schemas and summaries, prefer paths over file dumps, and stop when the acceptance criteria are met rather than spawning agents for their own sake. Report how many children ran and which models they used.
+
+                Load the fleet-orchestration skill at the start of any non-trivial task: it holds the brief template, instrument and model routing rules, workflow-script patterns, and budget tiers.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              # Set true to add the apply_patch tool beside edit.
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-schedule
+            name: '@deepseek-ai/dsh-tool-schedule'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              # The Fleet playbook ships with this bundle so other modes do not
+              # pay for its catalog entry. Resolve it through the profile that
+              # links this package, so a clone + `npm run link` works without a
+              # machine-specific path. Override this entry if the package is
+              # installed somewhere other than the profile's @local scope.
+              customSkillDirs:
+                - !!js '(process.env.DSH_PROFILE_DIR ?? dshHomePath("profiles/" + (process.env.DSH_PROFILE ?? "desktop"))) + "/node_modules/@local/fleet-preset/skills"'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+                    Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+                    The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+                    Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+                    Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+                    When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  # Children may be routed to a cheaper model than the parent.
+                  modelSelection: true
+                  modelDiscovery: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
+                  # Match the profile-wide subagent capacity (10 concurrent); a
+                  # larger wave would only fail on ACTIVATION_LIMIT_REACHED.
+                  maxConcurrentAgents: 10
+                  # Per-run child ceiling: generous, but a hard stop for a
+                  # runaway script. Split larger work into waves/batches.
+                  maxTotalAgents: 96
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+                config:
+                  # The lead reads workflow results directly; keep them concise
+                  # so a chatty script cannot flood the context.
+                  maxResultChars: 24000
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'
+            disabled: !!js "!ctx.get('profileContext')"
+          - id: tool-plugin-market
+            name: '@deepseek-ai/dsh-plugin-market/tools'
+            disabled: true

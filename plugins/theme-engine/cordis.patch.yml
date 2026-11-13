@@ -1,0 +1,3 @@
+- insert:
+    - id: theme-engine
+      name: '@local/theme-engine'

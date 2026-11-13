@@ -1,0 +1,36 @@
+
+> @local/session-tripwire@0.1.0 test
+> node test/run.mjs
+
+✔ MVP-1: sessions register against one workspace-scoped ledger and survive reopen (19.0408ms)
+✔ MVP-1: the journal replays when the snapshot is missing (13.1527ms)
+✔ MVP-2: each write records a content hash and the changed hashes are visible later (20.8821ms)
+✔ MVP-3: warn mode injects the conflicting session id into the tool result (24.0845ms)
+✔ MVP-4: block mode returns a typed conflict and all three remediation choices (20.6605ms)
+✔ MVP-5: leases expire by TTL, fences reject stale writers, and claims transfer ownership (32.5404ms)
+✔ MVP-5: concurrent block-mode intents cannot both acquire the same path (14.5173ms)
+✔ MVP-5: a slow writer may renew after its own lease expires when no newer fence exists (15.327ms)
+✔ MVP-5: a released claim still fences out an old writer (23.0956ms)
+✔ MVP-1: journal replay restores leases and advances the fence counter (20.6017ms)
+✔ MVP-6 inputs: ignore list, kill switch, and outside-workspace paths are handled (27.1498ms)
+✔ MVP-6: the board renders holders, hashes, ignore list, and the kill switch (17.454ms)
+✔ normalizePath is workspace-relative, case-folded on Windows, and rejects escapes (0.243ms)
+✔ ignore globs match basenames at any depth and keep directory boundaries (0.1996ms)
+✔ MVP-1: sessions register on start, routes serve the board, and writes appear on it (34.5171ms)
+✔ MVP-2: the post-execute hook records the content hash and before/after pair (14.3217ms)
+✔ MVP-3: warn mode appends the other session id to the allowed write result (39.1223ms)
+✔ MVP-4: block mode denies the call with the typed conflict and leaves the file intact (42.547ms)
+✔ MVP-5: the /tripwire command drives claim, release, mode, ignore, and kill switch (34.8509ms)
+✔ MVP-5: /tripwire claim resolves a relative path against the session cwd (13.1201ms)
+✔ MVP-6: board actions toggle the kill switch and edit the ignore list (15.5766ms)
+✔ MVP-3: observe records the overlapping write without taking the lease (49.9357ms)
+✔ MVP-4: a multi-file patch blocked on the second target releases the first lease (64.6552ms)
+✔ apply_patch and str_replace_editor targets are extracted before dispatch (0.5487ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 566.0017

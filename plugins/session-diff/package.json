@@ -1,0 +1,47 @@
+{
+  "name": "@local/session-diff",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A deterministic per-session receipt: files changed with SHA-256, commands with exit codes, models with per-turn cost, and open threads — generated from session events, with retention-capped pre-write snapshots and single-file restore.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./receipt": "./src/receipt.mjs",
+    "./session": "./src/session.mjs",
+    "./cli": "./src/cli.mjs",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "bin": {
+    "dsh-receipt": "./bin/dsh-receipt.mjs"
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "test": "node --test --test-isolation=none"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src/*.mjs",
+    "bin/*.mjs",
+    "test/*.mjs",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

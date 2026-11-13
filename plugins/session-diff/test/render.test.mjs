@@ -1,0 +1,219 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { escapeHtml, renderHtml, renderJson, renderMarkdown } from '../src/render.mjs'
+
+const HASH_A = 'a'.repeat(64)
+const HASH_B = 'b'.repeat(64)
+const HASH_C = 'c'.repeat(64)
+const HASH_D = 'd'.repeat(64)
+const LONG_COMMAND = `node --test ${'test/very-long-name-'.repeat(6)}.test.mjs`
+const LONG_FAILURE = `AssertionError: ${'expected the rendered report to stay readable '.repeat(4)}`
+
+/**
+ * Build a small receipt fixture for renderer tests.
+ * @param {object} [overrides] - top-level and nested overrides.
+ * @returns {object} fixture receipt.
+ */
+function makeReceipt(overrides = {}) {
+  const base = {
+    version: 1,
+    kind: 'session-receipt',
+    generator: { name: 'session-diff', version: '1.2.3' },
+    generatedAt: 1767323045000,
+    session: {
+      id: 'session-abc',
+      title: 'Fix <script>alert("x")</script> & report',
+      cwd: 'C:/work/project',
+      createdAt: 1767323000000,
+      startedAt: 1767323045000,
+      endedAt: 1767323110000,
+      durationMs: 65000,
+      eventCount: 42,
+      firstSeq: 1,
+      lastSeq: 42,
+      agentPreset: 'default',
+    },
+    summary: {
+      turns: 1,
+      steps: 4,
+      toolCalls: 3,
+      filesAdded: 1,
+      filesModified: 1,
+      filesDeleted: 1,
+      commands: 2,
+      commandsFailed: 1,
+      models: 2,
+      totalCostUsd: 0.123456,
+      unpricedModels: [],
+      openThreads: 2,
+    },
+    files: [
+      {
+        path: 'src/added.mjs',
+        status: 'added',
+        beforeSha256: null,
+        afterSha256: HASH_A,
+        beforeBytes: null,
+        afterBytes: 128,
+        beforeSource: 'absent',
+        afterSource: 'disk',
+        ops: [],
+      },
+      {
+        path: 'src/changed.mjs',
+        status: 'modified',
+        beforeSha256: HASH_B,
+        afterSha256: HASH_C,
+        beforeBytes: 64,
+        afterBytes: 80,
+        beforeSource: 'snapshot',
+        afterSource: 'disk',
+        ops: [],
+      },
+      {
+        path: 'docs/removed.md',
+        status: 'deleted',
+        beforeSha256: HASH_D,
+        afterSha256: null,
+        beforeBytes: 32,
+        afterBytes: null,
+        beforeSource: 'snapshot',
+        afterSource: 'absent',
+        ops: [],
+      },
+    ],
+    commands: [
+      {
+        seq: 7,
+        turn: 1,
+        time: 1767323050000,
+        tool: 'pwsh',
+        command: 'node --test test/render.test.mjs test/diff.test.mjs',
+        exitCode: 0,
+        ok: true,
+        firstFailureLine: null,
+        failedTests: false,
+      },
+      {
+        seq: 8,
+        turn: 1,
+        time: 1767323060000,
+        tool: 'pwsh',
+        command: LONG_COMMAND,
+        exitCode: 1,
+        ok: false,
+        firstFailureLine: LONG_FAILURE,
+        failedTests: true,
+      },
+    ],
+    models: [
+      {
+        provider: 'deepseek-account',
+        model: 'deepseek-flash',
+        requests: 2,
+        usage: { inputTokens: 1000, outputTokens: 250, cacheReadTokens: 50, cacheWriteTokens: 0 },
+        costUsd: 0.123456,
+        unpricedRequests: 0,
+      },
+      {
+        provider: 'deepseek-account',
+        model: 'unpriced-model',
+        requests: 1,
+        usage: { inputTokens: 200, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        costUsd: 0,
+        unpricedRequests: 1,
+      },
+    ],
+    turns: [
+      {
+        turn: 1,
+        startedAt: 1767323045000,
+        endedAt: 1767323110000,
+        durationMs: 65000,
+        reason: 'completed',
+        provider: 'deepseek-account',
+        model: 'deepseek-flash',
+        usage: { inputTokens: 1000, outputTokens: 250, cacheReadTokens: 50, cacheWriteTokens: 0 },
+        costUsd: 0.123456,
+      },
+    ],
+    modelSwitches: [],
+    plugins: [{ seq: 9, action: 'set_plugin', target: 'demo-plugin', enabled: true }],
+    settings: [{ seq: 10, name: 'theme', args: 'dark' }],
+    threads: [
+      { kind: 'failing-command', title: 'Last command still failing', detail: 'node --test failed', ref: 8 },
+      { kind: 'todo', title: 'Checklist item open', detail: 'Write the report', ref: 10 },
+    ],
+    snapshots: null,
+  }
+  return {
+    ...base,
+    ...overrides,
+    session: { ...base.session, ...overrides.session },
+    summary: { ...base.summary, ...overrides.summary },
+  }
+}
+
+test('renderMarkdown emits every section, in order, without undefined or NaN', () => {
+  const markdown = renderMarkdown(makeReceipt())
+  const headings = [
+    '# Session receipt:',
+    '## Summary',
+    '## Files',
+    '## Commands',
+    '## Models and per-turn cost',
+    '## Plugins and settings touched',
+    '## Open threads',
+  ]
+  let previous = -1
+  for (const heading of headings) {
+    const at = markdown.indexOf(heading)
+    assert.ok(at >= 0, `missing ${heading}`)
+    assert.ok(at > previous, `${heading} is out of order`)
+    previous = at
+  }
+  assert.match(markdown, /_Generated by session-diff v1\.2\.3 from 42 events\._/)
+  assert.ok(markdown.includes(`${HASH_A.slice(0, 12)}…`))
+  assert.ok(markdown.includes('absent'))
+  assert.match(markdown, /- Failures: 1/)
+  assert.doesNotMatch(markdown, /\bundefined\b/)
+  assert.doesNotMatch(markdown, /\bNaN\b/)
+  assert.ok(!markdown.includes(LONG_COMMAND), 'long command should be truncated')
+  assert.ok(!markdown.includes(LONG_FAILURE), 'long failure line should be truncated')
+})
+
+test('renderHtml escapes a script title and renders hashes with full title attributes', () => {
+  const html = renderHtml(makeReceipt())
+  assert.match(html, /^<!doctype html>/)
+  assert.ok(html.includes('&lt;script&gt;'))
+  assert.ok(!html.includes('<script>'))
+  assert.ok(html.includes(`<code title="${HASH_C}">${HASH_C.slice(0, 12)}…</code>`))
+  assert.ok(html.includes('None recorded.') === false)
+  assert.doesNotMatch(html, /\bundefined\b/)
+  assert.doesNotMatch(html, /\bNaN\b/)
+  assert.ok(html.endsWith('</html>\n'))
+})
+
+test('renderJson round-trips through JSON.parse', () => {
+  const receipt = makeReceipt()
+  const json = renderJson(receipt)
+  assert.ok(json.endsWith('\n'))
+  assert.ok(!json.endsWith('\n\n'))
+  assert.deepEqual(JSON.parse(json), receipt)
+})
+
+test('empty plugins, settings, and threads use the None recorded sentinel', () => {
+  const receipt = makeReceipt({ plugins: [], settings: [], threads: [] })
+  const markdown = renderMarkdown(receipt)
+  assert.match(markdown, /## Plugins and settings touched\n\nNone recorded\./)
+  assert.match(markdown, /## Open threads\n\nNone recorded\./)
+  const html = renderHtml(receipt)
+  assert.ok(html.includes('None recorded.'))
+})
+
+test('escapeHtml covers all five HTML-sensitive characters', () => {
+  assert.equal(
+    escapeHtml('<a href="x">&\'</a>'),
+    '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;',
+  )
+})

@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HIVEMIND_HOME="${HIVEMIND_HOME:-$HOME/.config/hivemind}"
+OPENCODE_DIR="${OPENCODE_DIR:-$HOME/.config/opencode}"
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+
+usage() {
+  echo "=================================================================="
+  echo "  HIVEMIND SWARM PROFILE SWITCHER (OpenCode + Claude Code + DSH)"
+  echo "=================================================================="
+  echo "Usage: hive-switch <profile-name> | status | list"
+  echo ""
+  echo "Available Profiles:"
+  echo "  chatgpt-deepseek  -> GPT-6.1 Sol / GPT-6 Astra (Plus OAuth) + DeepSeek V4.1 Flash Workers [DEFAULT]"
+  echo "  claude-hybrid     -> Claude Opus 5.5 / Sonnet 5.5 + DeepSeek V4.1 Flash Scout/Verifier + GPT-6 Astra Oracle"
+  echo "  claude-native     -> Pure Claude Code Pro/Max (Opus 5.5 + Sonnet 5.5 + Haiku 5.5)"
+  echo "  argon-deepseek    -> Gemini 4 Argon ($10 GCP Credit) + DeepSeek V4.1 Flash Workers"
+  echo "  opencode-go-max   -> GPT-6.1 Sol + OpenCode Go ($10/mo GLM-5.3-Flash & DeepSeek V4.1 Flash)"
+  echo ""
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 0
+fi
+
+CMD="$1"
+
+if [[ "$CMD" == "list" || "$CMD" == "--help" || "$CMD" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ "$CMD" == "status" ]]; then
+  ACTIVE_FILE="$HIVEMIND_HOME/active_profile"
+  if [[ -f "$ACTIVE_FILE" ]]; then
+    echo "Active Hivemind Profile: $(cat "$ACTIVE_FILE")"
+  else
+    echo "Active Hivemind Profile: (not set yet)"
+  fi
+  echo ""
+  echo "OpenCode Primary Model:"
+  grep -E '"model":' "$OPENCODE_DIR/opencode.json" 2>/dev/null | head -n 2 || echo "  (opencode.json not found)"
+  echo ""
+  echo "OpenCode Agent Routing ($OPENCODE_DIR/agents/):"
+  for f in "$OPENCODE_DIR"/agents/*.md; do
+    [[ -f "$f" ]] || continue
+    m=$(grep -E '^model:' "$f" | head -n 1 | awk '{print $2}')
+    printf "  %-24s -> %s\n" "$(basename "$f" .md)" "${m:-default}"
+  done
+  exit 0
+fi
+
+PROFILE_JSON="$HIVEMIND_HOME/profiles/${CMD}.json"
+if [[ ! -f "$PROFILE_JSON" ]]; then
+  echo "Error: Unknown profile '$CMD'. Run 'hive-switch list' to see valid options."
+  exit 1
+fi
+
+mkdir -p "$OPENCODE_DIR/agents" "$HIVEMIND_HOME"
+
+# Use Python 3 (or node fallback) to cleanly extract opencode_config and rewrite agent frontmatter models
+python3 - "$PROFILE_JSON" "$OPENCODE_DIR" "$CLAUDE_DIR" <<'PYEOF'
+import json
+import re
+import sys
+from pathlib import Path
+
+profile_path = Path(sys.argv[1])
+opencode_dir = Path(sys.argv[2])
+claude_dir = Path(sys.argv[3])
+
+data = json.loads(profile_path.read_text(encoding="utf-8"))
+opencode_cfg = data["opencode_config"]
+agent_models = data["agent_models"]
+
+# 1. Backup and write opencode.json
+target_cfg = opencode_dir / "opencode.json"
+if target_cfg.exists():
+    (opencode_dir / "opencode.json.prev").write_text(target_cfg.read_text(encoding="utf-8"), encoding="utf-8")
+target_cfg.write_text(json.dumps(opencode_cfg, indent=2) + "
+", encoding="utf-8")
+
+# 2. Update model: field in each ~/.config/opencode/agents/<agent>.md
+agents_dir = opencode_dir / "agents"
+for agent_name, model_slug in agent_models.items():
+    md_file = agents_dir / f"{agent_name}.md"
+    if md_file.exists():
+        text = md_file.read_text(encoding="utf-8")
+        text = re.sub(r"(?m)^model:\s*.*$", f"model: {model_slug}", text, count=1)
+        md_file.write_text(text, encoding="utf-8")
+
+print(f"[OK] Switched OpenCode config & 6 Hivemind agents to profile: {data['profile_id']}")
+print(f"     {data['description']}")
+for k, v in agent_models.items():
+    print(f"     - @{k:<20} -> {v}")
+PYEOF
+
+echo "$CMD" > "$HIVEMIND_HOME/active_profile"

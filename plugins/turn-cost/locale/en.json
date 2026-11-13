@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session cost",
+    "description": "Shows an estimated session API cost in the composer statistics row, with a refreshable token and per-bucket cost breakdown priced from published DeepSeek, Gemini, Claude, and OpenAI rates."
+  }
+}

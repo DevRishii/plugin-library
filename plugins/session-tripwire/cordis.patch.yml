@@ -1,0 +1,3 @@
+- insert:
+    - id: session-tripwire
+      name: '@local/session-tripwire'

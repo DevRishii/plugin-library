@@ -1,0 +1,29 @@
+{
+  "name": "@local/idea-board",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "description": "A resizable, dockable floating idea board with Dream and Nightmare boards: capture ideas, review AI-generated product dreams, run the dreamer or the workspace doctor from the window, and pursue, discard, or squash entries.",
+  "exports": {
+    ".": "./index.js",
+    "./brief": "./brief.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "bin": {
+    "dream-brief": "./bin/dream-brief.mjs"
+  },
+  "scripts": {
+    "test": "node --test --test-isolation=none test/brief.test.mjs test/plugin.test.mjs test/activity.test.mjs test/pursued.test.mjs test/nightmares.test.mjs"
+  },
+  "files": ["index.js", "brief.js", "client.js", "dreams.js", "nightmares.js", "activity.js", "bin/*.mjs", "test/*.mjs", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "DREAM-BOARD.md"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-layout", "@deepseek-ai/dsh-client-ui-sidebar"]
+    }
+  }
+}

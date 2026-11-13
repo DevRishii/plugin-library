@@ -1,0 +1,65 @@
+{
+  "profile_id": "claude-hybrid",
+  "description": "Claude Code Pro/Max Hybrid Stack: Claude Opus 5.5 + Sonnet 5.5 for Architecture/Surgical Code, DeepSeek V4.1 Flash for Scout/Verifier, GPT-6 Astra for Oracle",
+  "agent_models": {
+    "hivemind-architect": "anthropic/claude-opus-5-5",
+    "scout": "deepseek/deepseek-flash",
+    "surgeon": "anthropic/claude-sonnet-5-5",
+    "verifier": "deepseek/deepseek-flash",
+    "auditor": "anthropic/claude-sonnet-5-5",
+    "oracle": "openai/gpt-6-astra"
+  },
+  "opencode_config": {
+    "$schema": "https://opencode.ai/config.json",
+    "model": "anthropic/claude-opus-5-5",
+    "small_model": "deepseek/deepseek-flash",
+    "provider": {
+      "deepseek": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "DeepSeek API (Direct)",
+        "options": {
+          "baseURL": "https://api.deepseek.com/v1",
+          "apiKey": "{env:DEEPSEEK_API_KEY}"
+        },
+        "models": {
+          "deepseek-flash": {
+            "name": "DeepSeek V4.1 Flash (Ultra-Cheap Worker)",
+            "limit": {
+              "context": 128000,
+              "output": 32000
+            }
+          },
+          "deepseek-v4-pro": {
+            "name": "DeepSeek V4 Pro (Reasoning Escalation)",
+            "limit": {
+              "context": 128000,
+              "output": 64000
+            }
+          },
+          "deepseek-chat": {
+            "name": "DeepSeek Chat Alias",
+            "limit": {
+              "context": 128000,
+              "output": 32000
+            }
+          }
+        }
+      }
+    },
+    "agent": {
+      "plan": {
+        "model": "anthropic/claude-opus-5-5"
+      },
+      "build": {
+        "model": "anthropic/claude-sonnet-5-5"
+      },
+      "explore": {
+        "model": "deepseek/deepseek-flash"
+      }
+    },
+    "plugins": [
+      "opencode-openai-codex-auth",
+      "@ex-machina/opencode-anthropic-auth"
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "profile_id": "claude-native",
+  "description": "Pure Anthropic Claude Code Stack: Opus 5.5 Orchestrator + Sonnet 5.5 Surgeon + Haiku 5.5 Fast Subagents",
+  "agent_models": {
+    "hivemind-architect": "anthropic/claude-opus-5-5",
+    "scout": "anthropic/claude-haiku-5-5",
+    "surgeon": "anthropic/claude-sonnet-5-5",
+    "verifier": "anthropic/claude-haiku-5-5",
+    "auditor": "anthropic/claude-sonnet-5-5",
+    "oracle": "anthropic/claude-fable-5-2"
+  },
+  "opencode_config": {
+    "$schema": "https://opencode.ai/config.json",
+    "model": "anthropic/claude-opus-5-5",
+    "small_model": "anthropic/claude-haiku-5-5",
+    "provider": {
+      "deepseek": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "DeepSeek API (Direct)",
+        "options": {
+          "baseURL": "https://api.deepseek.com/v1",
+          "apiKey": "{env:DEEPSEEK_API_KEY}"
+        },
+        "models": {
+          "deepseek-flash": {
+            "name": "DeepSeek V4.1 Flash (Ultra-Cheap Worker)",
+            "limit": {
+              "context": 128000,
+              "output": 32000
+            }
+          },
+          "deepseek-v4-pro": {
+            "name": "DeepSeek V4 Pro (Reasoning Escalation)",
+            "limit": {
+              "context": 128000,
+              "output": 64000
+            }
+          },
+          "deepseek-chat": {
+            "name": "DeepSeek Chat Alias",
+            "limit": {
+              "context": 128000,
+              "output": 32000
+            }
+          }
+        }
+      }
+    },
+    "agent": {
+      "plan": {
+        "model": "anthropic/claude-opus-5-5"
+      },
+      "build": {
+        "model": "anthropic/claude-sonnet-5-5"
+      },
+      "explore": {
+        "model": "anthropic/claude-haiku-5-5"
+      }
+    },
+    "plugins": [
+      "opencode-openai-codex-auth",
+      "@ex-machina/opencode-anthropic-auth"
+    ]
+  }
+}

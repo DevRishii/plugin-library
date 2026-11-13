@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Fleet view",
+    "description": "Adds a right-sidebar tab that shows the current session and its whole subagent tree as a live node tree, with per-node model and thinking indicators, per-node cost and an estimated swarm total."
+  }
+}

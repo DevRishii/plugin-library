@@ -1,0 +1,29 @@
+{
+  "name": "@local/session-tripwire",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Workspace-scoped write-intent ledger for DeepSeek Harness: warns or refuses a write when another Session holds the same file.",
+  "exports": {
+    ".": "./index.js",
+    "./ledger": "./ledger.js",
+    "./board": "./board.js"
+  },
+  "files": [
+    "index.js",
+    "ledger.js",
+    "board.js",
+    "cordis.patch.yml",
+    "README.md",
+    "docs/board.html"
+  ],
+  "scripts": {
+    "test": "node test/run.mjs",
+    "test:node": "node --test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

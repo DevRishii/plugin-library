@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tgz
+
+# Local state and secrets — never commit these
+.dsh/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.log
+*.bak
+*.tmp
+
+# Local profile wiring created by `npm run link`
+.plugin-library-backup/
