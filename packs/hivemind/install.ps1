@@ -15,6 +15,9 @@
     %USERPROFILE%\.config\hivemind\profiles\*.json
     %USERPROFILE%\.config\hivemind\base-opencode.json
     %USERPROFILE%\.config\hivemind\hive-switch.ps1
+    %USERPROFILE%\.config\hivemind\scripts\hive\*.mjs
+    %USERPROFILE%\.config\hivemind\config\model-tiers.json
+    %USERPROFILE%\.config\hivemind\vault-kit\
     %USERPROFILE%\.config\opencode\AGENTS.md, agents\, commands\, skills\
     %USERPROFILE%\.config\opencode\commands\stack.md + commands\stack\*.md
     %USERPROFILE%\.local\bin\hive-switch.cmd + hive-switch.ps1 (forwarder)
@@ -38,6 +41,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Root    = Split-Path -Parent $PSCommandPath
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $Root)
 $HomeDir = $env:USERPROFILE
 $HmHome  = Join-Path $HomeDir '.config\hivemind'
 $OcDir   = Join-Path $HomeDir '.config\opencode'
@@ -80,6 +84,31 @@ Get-ChildItem (Join-Path $Root 'profiles\*.json') | ForEach-Object {
   Install-File $_.FullName (Join-Path (Join-Path $HmHome 'profiles') $_.Name)
 }
 Install-File (Join-Path $Root 'base-opencode.json') (Join-Path $HmHome 'base-opencode.json')
+
+Say ""
+Say "Model-tier guard + portable kit -> $HmHome"
+$GuardSrc = Join-Path $RepoRoot 'scripts\hive'
+$VaultKitSrc = Join-Path $RepoRoot 'vault-kit'
+$ModelTiersSrc = Join-Path $RepoRoot 'config\model-tiers.json'
+if (Test-Path $GuardSrc) {
+  New-Item -ItemType Directory -Path (Join-Path $HmHome 'scripts') -Force | Out-Null
+  Copy-Item $GuardSrc (Join-Path $HmHome 'scripts\hive') -Recurse -Force
+  Ok 'scripts\hive\*.mjs'
+} else {
+  Warn "missing $GuardSrc; hive-switch will fail closed until the guard is installed"
+}
+if (Test-Path $VaultKitSrc) {
+  Copy-Item $VaultKitSrc (Join-Path $HmHome 'vault-kit') -Recurse -Force
+  Ok 'vault-kit\'
+} else {
+  Warn "missing $VaultKitSrc; vault commands will not work in consumer repos"
+}
+if (Test-Path $ModelTiersSrc) {
+  New-Item -ItemType Directory -Path (Join-Path $HmHome 'config') -Force | Out-Null
+  Install-File $ModelTiersSrc (Join-Path $HmHome 'config\model-tiers.json')
+} else {
+  Warn "missing $ModelTiersSrc; hive-switch will fail closed until the registry is installed"
+}
 
 Say ""
 Say "OpenCode config -> $OcDir"

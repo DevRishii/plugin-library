@@ -5,6 +5,7 @@
 - Target repository: `https://github.com/DevRishii/plugin-library` (`private: false`, `default_branch: main`)
 - Feature branch: `feat/context-vault-checkpoints`
 - Initial `gh auth status` exit code: `1` (`You are not logged into any GitHub hosts. To log in, run: gh auth login`)
+- Release preflight: authenticated as `DevFarid`, upstream `viewerPermission: WRITE`; publication mode is `direct`.
 
 ## Publication Decision Table
 

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "repo": "DevRishii/plugin-library",
   "default_branch": "main",
-  "publication_mode": "fork",
+  "publication_mode": "direct",
   "paths": {
     "brainstorm_command": "packs/hivemind/opencode/commands/brainstorm.md",
     "swarm_command": "packs/hivemind/opencode/commands/swarm.md",

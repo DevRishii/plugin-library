@@ -8,9 +8,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node scripts/test-all.mjs",
+    "test": "node scripts/test-all.mjs && node --test tests/hive/*.test.mjs",
+    "test:hive": "node --test tests/hive/*.test.mjs",
     "verify": "node scripts/verify.mjs",
-    "check": "node scripts/verify.mjs && node scripts/test-all.mjs",
+    "check": "node scripts/verify.mjs && node scripts/test-all.mjs && node --test tests/hive/*.test.mjs",
     "link": "node scripts/link-profile.mjs",
     "link:dry": "node scripts/link-profile.mjs --dry-run",
     "doctor": "node plugins/dsh-doctor/bin/dsh-doctor.mjs",

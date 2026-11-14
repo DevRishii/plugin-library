@@ -1,0 +1,10 @@
+{
+  "name": "e2e-sample",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fresh repository fixture for executable context-vault checkpoints.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

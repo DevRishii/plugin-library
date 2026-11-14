@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "updated": "2026-11-14",
+  "tiers": {
+    "1": "cheap",
+    "2": "standard",
+    "3": "smart",
+    "4": "frontier"
+  },
+  "models": {
+    "test/builder": {
+      "tier": 1,
+      "roles": ["builder", "scout"],
+      "notes": "Cheap worker used as the baseline builder in tier fixtures."
+    },
+    "test/peer": {
+      "tier": 2,
+      "roles": ["builder", "verifier"],
+      "notes": "Standard worker used by negative fixtures."
+    },
+    "test/smart-worker": {
+      "tier": 3,
+      "roles": ["builder", "surgeon"],
+      "notes": "Top-of-range builder used to test a one-tier gap."
+    },
+    "test/smart-architect": {
+      "tier": 3,
+      "roles": ["spec-architect", "hivemind-architect"],
+      "notes": "Deliberately equal-tier architect used by negative fixtures."
+    },
+    "test/architect": {
+      "tier": 4,
+      "roles": ["spec-architect", "hivemind-architect", "auditor"],
+      "notes": "Frontier architect used by positive fixtures."
+    },
+    "test/frontier": {
+      "tier": 4,
+      "roles": ["oracle"],
+      "notes": "Frontier escalation model."
+    }
+  },
+  "roles": {
+    "builder": {
+      "min_tier": 1,
+      "max_tier": 3
+    },
+    "spec-architect": {
+      "min_tier": 3
+    },
+    "hivemind-architect": {
+      "min_tier": 3
+    }
+  },
+  "profile_overrides": {},
+  "invariant": "tier(spec-architect) >= tier(builder) + 1"
+}

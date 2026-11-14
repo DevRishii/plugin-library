@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "entry_note_id": "moc-root",
+  "entry_note_path": "{{VAULT_DIR}}/00-MOC.md",
+  "notes": [
+    { "id": "moc-root", "type": "moc", "path": "{{VAULT_DIR}}/00-MOC.md", "stem_alias": "00-MOC" },
+    { "id": "map-repo", "type": "map", "path": "{{VAULT_DIR}}/10-map/map-repo.md" },
+    { "id": "map-layers", "type": "map", "path": "{{VAULT_DIR}}/10-map/map-layers.md" },
+    { "id": "runbook-swarm-run", "type": "runbook", "path": "{{VAULT_DIR}}/40-runbooks/runbook-swarm-run.md" },
+    { "id": "runbook-handoff", "type": "runbook", "path": "{{VAULT_DIR}}/40-runbooks/runbook-handoff.md" },
+    { "id": "runbook-context-budget", "type": "runbook", "path": "{{VAULT_DIR}}/40-runbooks/runbook-context-budget.md" }
+  ]
+}

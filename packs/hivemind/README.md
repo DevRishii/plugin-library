@@ -75,6 +75,28 @@ Each stack also repoints the nine Hivemind agents (`hivemind-architect`,
 - `/audit-diff` — read-only review of the working diff.
 - `/stack` — show the active stack and topology; `/stack/<name>` switches.
 
+## Context vault (Obsidian-compatible)
+
+After a goal passes the verification gate, Hivemind may checkpoint it into an
+optional vault at `.opencode/vault/` with a zero-dependency `scripts/vault.mjs`
+CLI. `/swarm` asks once, with exact `Yes` / `No` options, whether to create a
+vault (`absent` / `partial`) or refresh one (`present_healthy` /
+`present_unhealthy`). `No` writes nothing; CI auto-selects `No`. `/brainstorm`
+and `@spec-architect` run a vault-first gate, emit `vault-gate: <state>` before
+any file exploration, and use L0–L2 notes instead of blind scans. Every stack
+enforces `tier(spec-architect) >= tier(builder) + 1`; `hive-switch` fails closed
+on violations.
+
+The lifecycle CLI is locked in contract but not yet implemented end to end in
+this checkout. See [`docs/context-vault/GUIDE.md`](../../docs/context-vault/GUIDE.md)
+and [`docs/context-vault/USAGE.md`](../../docs/context-vault/USAGE.md).
+
+When upgrading, existing prompts are kept by default. Pass `-Force` (PowerShell)
+or `FORCE=1` (POSIX) to refresh bundled agent/command prompts; back up local
+customizations first. The installer places Hive CLIs and the vault kit under
+`~/.config/hivemind/`; a project's scaffolded `scripts/vault.mjs` remains the
+project-local query surface.
+
 ## How it works
 
 `hive-switch` deep-merges `base-opencode.json` (provider options and model

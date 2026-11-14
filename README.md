@@ -28,6 +28,19 @@ a host.
 stacking the right sidebar's two panes vertically; it is not an installable
 package.
 
+## Hivemind context vault
+
+Hivemind can checkpoint a finished project into an optional Obsidian-compatible
+context vault: pointer notes under `.opencode/vault/` plus a zero-dependency
+`scripts/vault.mjs` CLI. After a goal passes verification, `/swarm` asks once
+with exact `Yes` / `No` options whether to create a vault (`absent` / `partial`)
+or refresh one (`present_*`); `No`, and CI, write nothing. `/brainstorm` and
+`@spec-architect` always check the vault before exploring project files and emit
+`vault-gate: <state>`. Every stack keeps `spec-architect` at least one model tier
+above `builder`. See [`docs/context-vault/GUIDE.md`](docs/context-vault/GUIDE.md)
+for consent, install/upgrade, and health semantics, and
+[`docs/context-vault/USAGE.md`](docs/context-vault/USAGE.md) for recipes.
+
 ## The boards
 
 One plugin, three tabs, three jobs:

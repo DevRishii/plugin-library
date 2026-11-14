@@ -30,3 +30,4 @@ $ARGUMENTS
 5. Then ask: "Launch /swarm on .opencode/SPEC.md now? (yes / edit first)"
    - `yes` -> proceed as `/swarm` would using `.opencode/SPEC.md` (Wave 1 contracts -> Wave 2 parallel builders -> Wave 3 verification gate -> terminal `post-goal-checkpoint` prompt via `node scripts/hive/vault-lifecycle.mjs plan --goal <goal_id> --json` and the `question` tool).
    - `edit first` -> stop and wait for the user.
+6. If the user declines implementation and considers the compiled spec goal complete, run the terminal `post-goal-checkpoint` protocol after reporting the spec's validation result; call `question` with `{ questions: [plan().data.question] }`. If implementation proceeds, defer the checkpoint to `/swarm` completion. Reuse the same goal ID to avoid duplicate prompts.

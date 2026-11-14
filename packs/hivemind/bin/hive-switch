@@ -5,7 +5,8 @@ set -euo pipefail
 
 HIVEMIND_HOME="${HIVEMIND_HOME:-$HOME/.config/hivemind}"
 OPENCODE_DIR="${OPENCODE_DIR:-$HOME/.config/opencode}"
-export HIVEMIND_HOME OPENCODE_DIR
+HIVE_SWITCH_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+export HIVEMIND_HOME OPENCODE_DIR HIVE_SWITCH_SCRIPT
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "[hive-switch] ERROR: python3 is required" >&2
@@ -23,6 +24,7 @@ from pathlib import Path
 
 HIVEMIND_HOME = Path(os.environ["HIVEMIND_HOME"])
 OPENCODE_DIR = Path(os.environ["OPENCODE_DIR"])
+SCRIPT_PATH = Path(os.environ.get("HIVE_SWITCH_SCRIPT", __file__)).resolve()
 PROFILES_DIR = HIVEMIND_HOME / "profiles"
 ACTIVE_FILE = HIVEMIND_HOME / "active_profile"
 BASE_CONFIG = HIVEMIND_HOME / "base-opencode.json"
@@ -55,6 +57,46 @@ def fail(message):
 def read_text(path):
     with open(path, "r", encoding="utf-8", newline="") as handle:
         return handle.read()
+
+
+def model_tier_preflight(profile):
+    node = shutil.which("node")
+    if not node:
+        fail("Node.js is required to verify model tiers before switching. Install Node >= 22, then re-run install.sh.")
+    candidates = [
+        HIVEMIND_HOME / "scripts" / "hive" / "model-tier.mjs",
+        SCRIPT_PATH.parent / "scripts" / "hive" / "model-tier.mjs",
+        SCRIPT_PATH.parent.parent / "scripts" / "hive" / "model-tier.mjs",
+        SCRIPT_PATH.parent.parent.parent / "scripts" / "hive" / "model-tier.mjs",
+    ]
+    guard = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if guard is None:
+        fail(
+            "model-tier guard missing. Re-run install.sh to install scripts/hive/model-tier.mjs "
+            f"and config/model-tiers.json into {HIVEMIND_HOME} "
+            "(legacy install predates model-tier enforcement)."
+        )
+    result = subprocess.run(
+        [
+            node,
+            str(guard),
+            "verify",
+            "--strict",
+            "--json",
+            "--profiles",
+            str(PROFILES_DIR),
+            "--agents",
+            str(OPENCODE_DIR / "agents"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        fail(
+            f"model-tier preflight failed for profile '{profile}' (exit {result.returncode}). "
+            f"Refusing to write config. {detail}"
+        )
 
 
 def write_text(path, text):
@@ -192,6 +234,9 @@ def sync_mirror():
 def do_switch(name):
     data = get_profile(name)
     agents_dir = OPENCODE_DIR / "agents"
+    # Preflight model-tier compliance before any write to opencode.json, agent
+    # frontmatter, AGENTS.md, or active_profile.
+    model_tier_preflight(name)
     for agent in data["agent_models"]:
         if not (agents_dir / f"{agent}.md").is_file():
             fail(f"Profile '{name}' maps agent '{agent}' but {agents_dir / (agent + '.md')} does not exist.")

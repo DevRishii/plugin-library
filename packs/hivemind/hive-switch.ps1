@@ -18,6 +18,48 @@ function Read-Text([string]$Path) { [System.IO.File]::ReadAllText($Path, $Utf8No
 function Write-Text([string]$Path, [string]$Text) { [System.IO.File]::WriteAllText($Path, $Text, $Utf8NoBom) }
 function Fail([string]$Message) { [Console]::Error.WriteLine("[hive-switch] ERROR: $Message"); exit 1 }
 
+# Fail closed before any write: require Node + the model-tier guard, then verify
+# every installed profile and the baseline agent frontmatter. A legacy install
+# that predates the guard gets an explicit migration error.
+function Invoke-ModelTierPreflight {
+    $Node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $Node) {
+        Fail "Node.js is required to verify model tiers before switching. Install Node >= 22, then re-run install.ps1."
+    }
+    $GuardCandidates = @(
+        (Join-Path $HivemindHome "scripts\hive\model-tier.mjs"),
+        (Join-Path $PSScriptRoot "scripts\hive\model-tier.mjs"),
+        (Join-Path $PSScriptRoot "..\scripts\hive\model-tier.mjs"),
+        (Join-Path $PSScriptRoot "..\..\scripts\hive\model-tier.mjs")
+    )
+    $Guard = $null
+    foreach ($Candidate in $GuardCandidates) {
+        if (Test-Path $Candidate) { $Guard = $Candidate; break }
+    }
+    if (-not $Guard) {
+        Fail ("model-tier guard missing. Re-run install.ps1 to install scripts/hive/model-tier.mjs and config/model-tiers.json into $HivemindHome (legacy install predates model-tier enforcement).")
+    }
+    $ProfilesPath = Join-Path $HivemindHome "profiles"
+    $AgentsPath = Join-Path $OpenCodeDir "agents"
+    $VerifyArgs = @($Guard, "verify", "--strict", "--json", "--profiles", $ProfilesPath, "--agents", $AgentsPath)
+    # Native stderr is written as an ErrorRecord under Windows PowerShell 5.1;
+    # temporarily continue so a failing preflight reaches $LASTEXITCODE and the
+    # operator sees the tier diagnostic instead of a NativeCommandError.
+    $PreviousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $Output = & $Node.Source @VerifyArgs 2>&1
+        $Code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousPreference
+    }
+    if ($Code -ne 0) {
+        $Detail = (($Output | ForEach-Object { "$_" }) -join " ").Trim()
+        Fail "model-tier preflight failed for profile '$Command' (exit $Code). Refusing to write config. $Detail"
+    }
+}
+
+
 # Stack-independent configuration (openai provider options, plugins) lives in
 # base-opencode.json and is deep-merged under each profile's opencode_config.
 # Profile values win on conflict, so a profile can override any base key.
@@ -218,6 +260,10 @@ if ($Command -eq "validate") { Invoke-Validate $Target }
 # ---- switch ---------------------------------------------------------------
 $Data = Get-HiveProfile $Command
 $AgentsDir = Join-Path $OpenCodeDir "agents"
+
+# Preflight model-tier compliance before touching opencode.json, agent
+# frontmatter, AGENTS.md, or active_profile. Fail closed on missing guard/node.
+Invoke-ModelTierPreflight
 
 # Check everything up front so a bad profile cannot leave a half-switched config.
 foreach ($Prop in $Data.agent_models.PSObject.Properties) {
