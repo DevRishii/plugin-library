@@ -63,7 +63,12 @@ export function renderInlineCommentBody(comment = {}) {
   const severity = severityOf(comment)
   const lens = lensOf(comment)
   const title = inlineText(comment.title) || 'Untitled finding'
-  const lines = [`**[${severity} \u00b7 ${lens}]** ${title}`]
+  const unverified = comment?.verified === false
+  const tag = unverified ? `UNVERIFIED \u00b7 ${severity} \u00b7 ${lens}` : `${severity} \u00b7 ${lens}`
+  const lines = [`**[${tag}]** ${title}`]
+  if (unverified) {
+    lines.push('', '_Anchor/evidence not validated; not a verdict basis._')
+  }
 
   const corroborating = Array.isArray(comment.corroborating_lenses)
     ? comment.corroborating_lenses.map((id) => inlineText(id)).filter(Boolean)
@@ -134,12 +139,24 @@ export function renderReviewMarkdown(payload) {
     }
   }
 
+  lines.push(
+    '',
+    '> **Limited diff coverage.** A `completed` specialist report means the lens reviewed its **bounded slice**, not the entire diff. Omitted diff content is **unknown, not absent**; a missing finding is not evidence that the omitted code is clean.'
+  )
+
   lines.push('', '### Summary & Cross-Cutting Findings', '')
   if (review.summary_findings.length === 0) {
     lines.push('_No cross-cutting summary findings._')
   } else {
     for (const finding of review.summary_findings) {
-      lines.push(`- **[${severityOf(finding)} \u00b7 ${lensOf(finding)}]** ${inlineText(finding?.title) || 'Untitled finding'}`)
+      const unverified = finding?.verified === false
+      const tag = unverified
+        ? `UNVERIFIED \u00b7 ${severityOf(finding)} \u00b7 ${lensOf(finding)}`
+        : `${severityOf(finding)} \u00b7 ${lensOf(finding)}`
+      lines.push(`- **[${tag}]** ${inlineText(finding?.title) || 'Untitled finding'}`)
+      if (unverified) {
+        lines.push('  _Anchor/evidence not validated; not a verdict basis._')
+      }
       const body = text(finding?.body)
       if (body) {
         lines.push(`  ${body.replace(/\n/g, '\n  ')}`)

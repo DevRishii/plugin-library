@@ -12,6 +12,7 @@ import {
 } from '../src/render.mjs'
 import { publishPRReview } from '../src/publish.mjs'
 import { publishRepoPullRequest } from '../src/git-api-pr.mjs'
+import { synthesizeReview } from '../src/synthesize.mjs'
 
 const HEAD_SHA = 'a'.repeat(40)
 const LIVE_OTHER_SHA = 'b'.repeat(40)
@@ -218,10 +219,96 @@ test('renderReviewMarkdown includes marker, head sha, intent, coverage, and audi
   assert.match(markdown, /Unfulfilled Claims:/)
   assert.match(markdown, /### Multi-Angle Swarm Coverage/)
   assert.match(markdown, /\| security \| completed \| 1 \|/)
+  assert.match(markdown, /Limited diff coverage/i)
+  assert.match(markdown, /bounded slice/i)
+  assert.match(markdown, /not the entire diff/i)
+  assert.match(markdown, /unknown, not absent/i)
   assert.match(markdown, /### Summary & Cross-Cutting Findings/)
   assert.match(markdown, /Missing negative-path test/)
   assert.match(markdown, /Inline comments anchored directly on diff lines: 1 of 1/)
   assert.match(markdown, /Synthesis audit/)
+})
+
+test('renderReviewMarkdown labels verified:false summary findings UNVERIFIED, not as actionable findings', () => {
+  const markdown = renderReviewMarkdown(makePayload({
+    summary_findings: [
+      {
+        lens_id: 'testing-verification',
+        severity: 'LOW',
+        title: 'Demoted anchor finding',
+        body: 'The line anchor did not resolve inside the diff hunk.',
+        verified: false,
+        anchorable: false,
+        demote_reason: 'line_not_anchorable'
+      }
+    ]
+  }))
+  assert.match(markdown, /\*\*\[UNVERIFIED \u00b7 LOW \u00b7 testing-verification\]\*\* Demoted anchor finding/)
+  assert.match(markdown, /Anchor\/evidence not validated; not a verdict basis\./)
+  assert.match(markdown, /Limited diff coverage/i)
+  assert.doesNotMatch(markdown, /\*\*\[LOW \u00b7 testing-verification\]\*\* Demoted anchor finding/)
+})
+
+test('renderInlineCommentBody marks verified:false severe comments UNVERIFIED', () => {
+  const body = renderInlineCommentBody(makeSevereFinding('BLOCKER', { verified: false }))
+  assert.match(body, /\*\*\[UNVERIFIED \u00b7 BLOCKER \u00b7 security\]\*\* BLOCKER legacy finding/)
+  assert.match(body, /Anchor\/evidence not validated; not a verdict basis\./)
+  assert.doesNotMatch(body, /\*\*\[BLOCKER \u00b7 security\]\*\*/)
+})
+
+test('synthesizeReview keeps an unverified severe finding out of verified inline comments', () => {
+  const packet = {
+    schema_version: 1,
+    pr_ref: {
+      owner: 'acme',
+      repo: 'widgets',
+      number: 7,
+      canonical_url: 'https://github.com/acme/widgets/pull/7',
+      short_ref: 'acme/widgets#7'
+    },
+    pr_meta: { number: 7, head_sha: HEAD_SHA, base_sha: 'c'.repeat(40) },
+    files: [
+      {
+        path: 'src/runner.mjs',
+        status: 'modified',
+        is_binary: false,
+        additions: 1,
+        deletions: 0,
+        hunk_ids: [],
+        anchorable_new_lines: [],
+        anchorable_old_lines: [],
+        sha256: 'abc'
+      }
+    ],
+    hunks: [],
+    selected_lenses: [{ id: 'security', reason: 'core_always_on' }],
+    waves: [['security']]
+  }
+  const payload = synthesizeReview(packet, [
+    {
+      schema_version: 1,
+      lens_id: 'security',
+      head_sha: HEAD_SHA,
+      summary: 'One severe finding whose anchor is outside the diff.',
+      findings: [
+        makeSevereFinding('BLOCKER', {
+          line: 999,
+          line_start: 999,
+          line_end: 999
+        })
+      ]
+    }
+  ])
+
+  assert.equal(payload.inline_comments.length, 0)
+  assert.equal(payload.summary_findings.length, 1)
+  assert.equal(payload.summary_findings[0].verified, false)
+  assert.notEqual(payload.summary_findings[0].severity, 'BLOCKER')
+
+  const markdown = renderReviewMarkdown(payload)
+  assert.match(markdown, /\*\*\[UNVERIFIED \u00b7 MEDIUM \u00b7 security\]\*\* BLOCKER legacy finding/)
+  assert.match(markdown, /Anchor\/evidence not validated; not a verdict basis\./)
+  assert.doesNotMatch(markdown, /\*\*\[MEDIUM \u00b7 security\]\*\* BLOCKER legacy finding/)
 })
 
 test('buildGitHubReviewApiBody builds a RIGHT-side review payload', () => {

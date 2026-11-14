@@ -13,12 +13,22 @@ const HEAD_SHA = 'a'.repeat(40)
 
 const TRUSTED_MARKERS = [
   'Untrusted Input Quarantine Law',
+  'Evidence Discipline (MANDATORY)',
   'Line Coordinate Law',
   'Required Output Contract',
   'Never infer or renumber lines from hunk headers',
   '"schema_version": 1',
   'evidence_quote',
   'severity MUST be one of BLOCKER, HIGH, MEDIUM, LOW, NIT.'
+]
+
+const EVIDENCE_RULE_MARKERS = [
+  'UNKNOWN, not absent',
+  'Never assert that tests, fields, validations, or code are missing',
+  'answer PARTIAL or UNDETERMINABLE',
+  'Never fabricate an unfulfilled claim',
+  'transport artifacts, not source defects',
+  'Subjective style preferences are not MEDIUM findings'
 ]
 
 function makeSlice(lensId, overrides = {}) {
@@ -345,6 +355,33 @@ test('all 17 lenses are deterministic, complete, registry-trusted, and bounded',
     } else {
       assert.ok(!first.includes('"intent_alignment"'), `${registryLens.id} must not advertise intent schema`)
     }
+  }
+})
+
+test('evidence discipline rules are trusted and preserved for all 17 lenses within budget', () => {
+  assert.equal(LENS_REGISTRY.length, 17)
+
+  for (const registryLens of LENS_REGISTRY) {
+    const prompt = renderLensWorkerPrompt({}, makeSlice(registryLens.id))
+
+    assertPromptBudget(prompt, registryLens.id)
+    assertBalancedFences(prompt, registryLens.id)
+    assertTrustedScaffolding(prompt, registryLens.id)
+
+    for (const marker of EVIDENCE_RULE_MARKERS) {
+      assert.ok(prompt.includes(marker), `${registryLens.id} prompt missing evidence rule: ${marker}`)
+    }
+
+    // The rules are trusted scaffolding, placed before the output contract, and
+    // the prompt is complete rather than clipped mid-scaffolding.
+    const rulesAt = prompt.indexOf('## Evidence Discipline (MANDATORY)')
+    const contractAt = prompt.indexOf('## Required Output Contract (STRICT JSON)')
+    assert.ok(rulesAt >= 0 && contractAt > rulesAt, `${registryLens.id} evidence rules must precede the output contract`)
+    assert.ok(prompt.startsWith('# PR Review Worker'), `${registryLens.id} prompt must start with the trusted header`)
+    assert.ok(
+      prompt.includes(`- At most ${BUDGETS.MAX_FINDINGS_PER_LENS} findings.`),
+      `${registryLens.id} prompt must retain the complete output contract`
+    )
   }
 })
 

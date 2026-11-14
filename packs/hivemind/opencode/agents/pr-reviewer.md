@@ -52,7 +52,21 @@ you need is already in this message.
   LOW-confidence note anchored to the first changed line of that file. The orchestrator
   demotes unverifiable BLOCKERs, so a fabricated anchor only loses your finding.
 
-## 4. Output Contract (ONE raw JSON object, no fence)
+## 4. Evidence Discipline (MANDATORY)
+- This slice, manifest, and metadata can be partial: clipped diff lines, omitted
+  files, truncated lists, and absent context are **UNKNOWN, not absent**.
+- Never assert that tests, fields, validations, or code are missing unless the
+  relevant complete scope is supplied in this slice. A clipped manifest is not
+  proof that something does not exist.
+- If stated intent cannot be confirmed because the supporting code is sliced away
+  or omitted, answer `PARTIAL` or `UNDETERMINABLE` and explain the gap. Never
+  fabricate an `unfulfilled` claim from missing evidence.
+- Defanged or sanitized delimiter markers (for example `[DEFANGED_...]`) are
+  transport artifacts, not source defects. Never report them as findings.
+- Report only concrete observed failures. Subjective style preferences are not
+  `MEDIUM` findings and must not be reported as defects.
+
+## 5. Output Contract (ONE raw JSON object, no fence)
 Return exactly one JSON object and nothing else. Do not wrap it in a Markdown code fence,
 do not add "```json", and do not add prose, headings, or notes before or after it. Your
 response must start with `{` and end with `}` so the orchestrator can write it verbatim to
