@@ -1,0 +1,17 @@
+# Architectural & Recon Decisions (`DECISIONS.md`)
+
+| ID | Resolution |
+|---|---|
+| D1 | `DevRishii/plugin-library` default branch is `main`. `gh auth status` was unauthenticated during Wave 0; Wave 3 checks auth, offers interactive GitHub login if desired, uses `direct` or `fork` when authenticated, and falls back to `patch-only` without fabricating a PR URL if unauthenticated. |
+| D2 | Generalized vault kit uses `.opencode/vault/90-handoffs/` by default and supports `--runs-dir` override (e.g. `40-runs`) for backward compatibility. |
+| D3 | OpenCode's `question` tool schema takes `{ questions: [{ header, question, options: [{ label, description }] }] }` at the tool boundary; `vault-prompt.mjs` emits `{ header, question, options }` per question item with exact `Yes` and `No` labels (`header` <= 30 chars: `Obsidian Context Vault` = 22 chars, `Refresh Context Vault` = 21 chars). |
+| D4 | Goal completion occurs at the end of `packs/hivemind/opencode/commands/swarm.md` (including `/brainstorm` step 6 when the user launches `/swarm`) and on standalone Hivemind goal completion as documented in `packs/hivemind/opencode/AGENTS.md`. Both reference `post-goal-checkpoint`. |
+| D5 | `scripts/test-all.mjs` runs `npm test` inside `plugins/*` only. Placing Hivemind vault/tier suites in `tests/hive/*.test.mjs` causes zero interference with plugin runners and runs cleanly via `node --test tests/hive/*.test.mjs` (exposed as `npm run test:hive` in Wave 3). |
+| D6 | All 5 profiles in `packs/hivemind/profiles/*.json` statically map every role under `agent_models`. `packs/hivemind/hive-switch.ps1` and `packs/hivemind/bin/hive-switch` require a `model:` key in `packs/hivemind/opencode/agents/*.md` frontmatter to patch during switches; therefore baseline `model:` lines remain in Hivemind agent files (`spec-architect`: tier 4 `openai/gpt-6.1-sol`, `builder`: tier 1 `opencode/deepseek-v4.1-flash`) while `model-tier.mjs verify --strict` verifies both every profile JSON and baseline agent frontmatter. Consumer `vault-kit/template/.opencode/agents/context-librarian.md` carries no `model:` pin. |
+| D7 | Every model entry in `config/model-tiers.json` carries an explicit capability `tier` (`1..4`), `roles`, and `notes` justification. |
+| D8 | Template files under `vault-kit/template/` copy verbatim into consumer repositories with placeholder substitution from the closed 7-token set (`PROJECT_NAME`, `PROJECT_ONE_LINER`, `STACK`, `SRC_DIRS`, `TEST_CMD`, `VAULT_DIR`, `DATE`), plus derived `20-contracts/` and `30-slices/` notes. |
+| D9 | Installers (`packs/hivemind/install.ps1` and `packs/hivemind/install.sh`) copy `scripts/hive/**`, `vault-kit/**`, and `config/model-tiers.json` into `~/.config/hivemind/` so `/brainstorm`, `/swarm`, and `hive-switch` can invoke the CLIs inside any consumer repository. |
+| D10 | Per-goal prompt state is stored at `.hive/lifecycle/<goal_id>.json` and ignored via `.gitignore`. |
+| D11 | Portable `git` and `gh` binaries live outside the repository clone; no binaries, secrets, or machine-specific paths (`<Drive>:\Users\...`) are committed, keeping `node scripts/verify.mjs` green. |
+| D12 | Ownership matrix paths in `docs/context-vault/SPEC.md` are updated to exact `packs/hivemind/...` paths resolved in `PATH-MAP.json`. |
+| D13 | Isolated feature branch `feat/context-vault-checkpoints` in a clean clone of `DevRishii/plugin-library` (`main` @ `24037a2`); zero overlap with unrelated workstreams. |

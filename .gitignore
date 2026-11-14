@@ -20,3 +20,10 @@ Thumbs.db
 
 # Local profile wiring created by `npm run link`
 .plugin-library-backup/
+
+# Context vault generated index, run handoffs, lifecycle state, and e2e scratch
+.opencode/vault/.index/
+.opencode/vault/90-handoffs/
+.hive/
+tests/fixtures/e2e/tmp/
+context-vault-checkpoints.patch
