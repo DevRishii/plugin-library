@@ -1,0 +1,20 @@
+{
+  "profile_id": "equal-profile",
+  "topology": {
+    "name": "Equal Tier Fixture",
+    "max_parallel_subagents": 2,
+    "verification_gate": ["verifier"],
+    "directive": "Negative fixture where architect and builder share tier 3."
+  },
+  "agent_models": {
+    "builder": "test/smart-worker",
+    "verifier": "test/builder",
+    "hivemind-architect": "test/smart-architect",
+    "spec-architect": "test/smart-architect",
+    "oracle": "test/frontier"
+  },
+  "opencode_config": {
+    "model": "test/smart-architect",
+    "small_model": "test/builder"
+  }
+}

@@ -1,0 +1,1 @@
+feat(hivemind): vault-first brainstorming, post-goal Obsidian checkpoints, smarter architect

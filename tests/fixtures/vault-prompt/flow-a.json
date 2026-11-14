@@ -1,0 +1,14 @@
+{
+  "header": "Obsidian Context Vault",
+  "question": "This goal is complete and the project has no Obsidian context vault. Checkpoint the repo into one now? This creates .opencode/vault/ (L0 MOC, maps, contracts, slices, runbooks, 90-handoffs) plus the zero-dependency node scripts/vault.mjs CLI, a context-librarian agent, vault commands and AGENTS.md progressive-disclosure pointers.",
+  "options": [
+    {
+      "label": "Yes",
+      "description": "Scaffold, index and require check --strict to pass. Roughly 2 minutes, no new dependencies."
+    },
+    {
+      "label": "No",
+      "description": "Skip for now. Nothing is written; you can run /vault-init later."
+    }
+  ]
+}

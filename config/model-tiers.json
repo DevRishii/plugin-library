@@ -1,0 +1,132 @@
+{
+  "$schema_version_note": "Hivemind capability tiers. Zero external dependencies; consumed by scripts/hive/model-tier.mjs.",
+  "schema_version": 1,
+  "updated": "2026-11-14",
+  "tiers": {
+    "1": "cheap",
+    "2": "standard",
+    "3": "smart",
+    "4": "frontier"
+  },
+  "models": {
+    "openai/gpt-6.1-sol": {
+      "tier": 4,
+      "roles": ["hivemind-architect", "spec-architect", "auditor"],
+      "notes": "Frontier reasoning orchestrator with the strongest spec-compilation and contract-review accuracy; used as the default architect and auditor baseline."
+    },
+    "openai/gpt-6-astra": {
+      "tier": 4,
+      "roles": ["oracle"],
+      "notes": "Apex escalation model reserved for algorithmic and concurrency deadlocks that survived two implementation attempts."
+    },
+    "anthropic/claude-opus-5-5": {
+      "tier": 4,
+      "roles": ["hivemind-architect", "spec-architect"],
+      "notes": "Frontier long-context architecture model; strongest at whole-repository contract design and multi-file refactor planning."
+    },
+    "anthropic/claude-fable-5-2": {
+      "tier": 4,
+      "roles": ["oracle"],
+      "notes": "Frontier reasoning specialist used as an alternate oracle when a second opinion on design soundness is required."
+    },
+    "google/gemini-4-argon": {
+      "tier": 4,
+      "roles": ["hivemind-architect", "spec-architect", "auditor"],
+      "notes": "Frontier model with a very large native context window; reads core files directly and authors contracts without micro-scouting."
+    },
+    "google/gemini-4-carbon": {
+      "tier": 4,
+      "roles": ["hivemind-architect"],
+      "notes": "Frontier macro-context lead variant tuned for long-horizon orchestration and wide fan-out planning."
+    },
+    "openai/gpt-5.1-codex-max": {
+      "tier": 4,
+      "roles": ["spec-architect", "oracle"],
+      "notes": "Highest-capability Codex reasoning tier; deep code-trace analysis for architecture and escalation reviews."
+    },
+    "openai/gpt-5.2-codex": {
+      "tier": 4,
+      "roles": ["spec-architect", "oracle"],
+      "notes": "Frontier Codex generation with strong repository-scale reasoning and precise patch synthesis."
+    },
+    "openai/gpt-5.2": {
+      "tier": 4,
+      "roles": ["spec-architect", "oracle"],
+      "notes": "Frontier general-reasoning model available through OAuth; used for architecture when Codex variants are unavailable."
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "tier": 3,
+      "roles": ["builder", "surgeon", "auditor"],
+      "notes": "Smart workhorse: near-frontier multi-file implementation quality at a fraction of the cost; valid as a top-of-range builder."
+    },
+    "deepseek/deepseek-v4-pro": {
+      "tier": 3,
+      "roles": ["builder", "surgeon", "researcher"],
+      "notes": "Reasoning-escalated DeepSeek tier for contract-heavy implementation slices that exceed flash reliability."
+    },
+    "opencode/deepseek-v4-pro": {
+      "tier": 3,
+      "roles": ["builder", "surgeon", "researcher"],
+      "notes": "Same reasoning-escalated DeepSeek tier routed through the OpenCode Go subscription; identical capability class."
+    },
+    "openai/gpt-5.1-codex": {
+      "tier": 3,
+      "roles": ["builder", "surgeon"],
+      "notes": "Strong code-generation tier below Codex Max; reliable for bounded multi-file implementation work."
+    },
+    "openai/gpt-5.1": {
+      "tier": 3,
+      "roles": ["builder", "auditor"],
+      "notes": "General smart tier with solid review and refactor judgement; below the frontier orchestrators."
+    },
+    "deepseek/deepseek-chat": {
+      "tier": 2,
+      "roles": ["builder", "verifier"],
+      "notes": "Standard non-reasoning chat tier; adequate for mechanical edits, renames, and routine test wiring."
+    },
+    "openai/gpt-5.1-codex-mini": {
+      "tier": 2,
+      "roles": ["builder"],
+      "notes": "Standard lightweight Codex tier for narrow, well-specified single-file changes."
+    },
+    "opencode/deepseek-v4.1-flash": {
+      "tier": 1,
+      "roles": ["builder", "scout", "surgeon", "verifier", "researcher"],
+      "notes": "High-throughput cheap worker used for scouts, verifiers, and most parallel builder slices; never an architect or oracle."
+    },
+    "deepseek/deepseek-flash": {
+      "tier": 1,
+      "roles": ["builder", "scout", "verifier"],
+      "notes": "Direct-API cheap worker for recon and mechanical implementation; lowest cost per completed slice."
+    },
+    "opencode/glm-5.3-flash": {
+      "tier": 1,
+      "roles": ["builder", "surgeon"],
+      "notes": "Cheap high-volume worker from the OpenCode Go pool; best for wide parallel builder fan-out."
+    },
+    "anthropic/claude-haiku-5-5": {
+      "tier": 1,
+      "roles": ["scout", "verifier", "researcher"],
+      "notes": "Cheap fast Anthropic tier for recon, log compression, and read-only verification."
+    },
+    "openai/gpt-6-luna": {
+      "tier": 1,
+      "roles": ["builder", "scout"],
+      "notes": "Cheapest GPT-6 generation tier; high-throughput small-diff worker and locator."
+    }
+  },
+  "roles": {
+    "builder": {
+      "min_tier": 1,
+      "max_tier": 3
+    },
+    "spec-architect": {
+      "min_tier": 3
+    },
+    "hivemind-architect": {
+      "min_tier": 3
+    }
+  },
+  "profile_overrides": {},
+  "invariant": "tier(spec-architect) >= tier(builder) + 1"
+}

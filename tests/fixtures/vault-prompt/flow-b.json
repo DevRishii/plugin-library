@@ -1,0 +1,14 @@
+{
+  "header": "Refresh Context Vault",
+  "question": "This goal is complete and changed files the vault may not reflect. Update the Obsidian context vault now? Drifted pointer notes are refreshed, contracts and maps re-derived for changed paths, then index + check --strict must pass.",
+  "options": [
+    {
+      "label": "Yes",
+      "description": "Refresh drifted notes, re-index, and require check --strict to pass."
+    },
+    {
+      "label": "No",
+      "description": "Skip the refresh. The vault stays as-is and /vault-refresh remains available."
+    }
+  ]
+}

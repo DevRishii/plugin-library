@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "repo": "DevRishii/plugin-library",
+  "default_branch": "main",
+  "publication_mode": "direct",
+  "paths": {
+    "brainstorm_command": "packs/hivemind/opencode/commands/brainstorm.md",
+    "swarm_command": "packs/hivemind/opencode/commands/swarm.md",
+    "spec_architect_agent": "packs/hivemind/opencode/agents/spec-architect.md",
+    "agent_definitions": [
+      "packs/hivemind/opencode/agents/auditor.md",
+      "packs/hivemind/opencode/agents/builder.md",
+      "packs/hivemind/opencode/agents/hivemind-architect.md",
+      "packs/hivemind/opencode/agents/oracle.md",
+      "packs/hivemind/opencode/agents/researcher.md",
+      "packs/hivemind/opencode/agents/scout.md",
+      "packs/hivemind/opencode/agents/spec-architect.md",
+      "packs/hivemind/opencode/agents/surgeon.md",
+      "packs/hivemind/opencode/agents/verifier.md"
+    ],
+    "profile_configs": [
+      "packs/hivemind/profiles/argon-deepseek.json",
+      "packs/hivemind/profiles/chatgpt-deepseek.json",
+      "packs/hivemind/profiles/claude-hybrid.json",
+      "packs/hivemind/profiles/claude-native.json",
+      "packs/hivemind/profiles/opencode-go-max.json"
+    ],
+    "stack_configs": [
+      "packs/hivemind/opencode/commands/stack/argon-deepseek.md",
+      "packs/hivemind/opencode/commands/stack/chatgpt-deepseek.md",
+      "packs/hivemind/opencode/commands/stack/claude-hybrid.md",
+      "packs/hivemind/opencode/commands/stack/claude-native.md",
+      "packs/hivemind/opencode/commands/stack/opencode-go-max.md"
+    ],
+    "hive_switch_entry": "packs/hivemind/hive-switch.ps1",
+    "hive_switch_posix": "packs/hivemind/bin/hive-switch",
+    "install_ps1": "packs/hivemind/install.ps1",
+    "install_sh": "packs/hivemind/install.sh",
+    "base_opencode_config": "packs/hivemind/base-opencode.json",
+    "root_agents": "packs/hivemind/opencode/AGENTS.md",
+    "package_json": "package.json"
+  },
+  "commands": {
+    "test": "node scripts/test-all.mjs",
+    "lint": "node scripts/verify.mjs",
+    "install": "node scripts/link-profile.mjs --dry-run",
+    "build": "node scripts/verify.mjs"
+  },
+  "resolved_by": "slice-recon-contracts",
+  "resolved_at": "2026-11-14T00:00:00Z"
+}

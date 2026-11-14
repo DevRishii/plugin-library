@@ -15,6 +15,9 @@
 #   ~/.config/hivemind/profiles/*.json
 #   ~/.config/hivemind/base-opencode.json
 #   ~/.config/hivemind/hive-switch
+#   ~/.config/hivemind/scripts/hive/*.mjs
+#   ~/.config/hivemind/config/model-tiers.json
+#   ~/.config/hivemind/vault-kit/
 #   ~/.config/opencode/{AGENTS.md,agents/,commands/,skills/}
 #   ~/.config/opencode/commands/stack.md + commands/stack/*.md
 #   ~/.local/bin/hive-switch
@@ -32,6 +35,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
 HM_HOME="$HOME/.config/hivemind"
 OC_DIR="$HOME/.config/opencode"
 BIN_DIR="$HOME/.local/bin"
@@ -42,7 +46,7 @@ ACTIVATE=""
 while getopts "a:h" opt; do
   case "$opt" in
     a) ACTIVATE="$OPTARG" ;;
-    h) sed -n '2,26p' "$0"; exit 0 ;;
+    h) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown option" >&2; exit 2 ;;
   esac
 done
@@ -83,6 +87,33 @@ for f in "$ROOT"/profiles/*.json; do
   install_file "$f" "$HM_HOME/profiles/$(basename "$f")" 0
 done
 install_file "$ROOT/base-opencode.json" "$HM_HOME/base-opencode.json" 0
+
+echo
+echo "Model-tier guard + portable kit -> $HM_HOME"
+GUARD_SRC="$REPO_ROOT/scripts/hive"
+MODEL_TIERS_SRC="$REPO_ROOT/config/model-tiers.json"
+VAULT_KIT_SRC="$REPO_ROOT/vault-kit"
+if [ -d "$GUARD_SRC" ]; then
+  mkdir -p "$HM_HOME/scripts"
+  rm -rf "$HM_HOME/scripts/hive"
+  cp -R "$GUARD_SRC" "$HM_HOME/scripts/hive"
+  ok "scripts/hive/*.mjs"
+else
+  warn "missing $GUARD_SRC; hive-switch will fail closed until the guard is installed"
+fi
+mkdir -p "$HM_HOME/config"
+if [ -f "$MODEL_TIERS_SRC" ]; then
+  install_file "$MODEL_TIERS_SRC" "$HM_HOME/config/model-tiers.json" 0
+else
+  warn "missing $MODEL_TIERS_SRC; hive-switch will fail closed until the registry is installed"
+fi
+if [ -d "$VAULT_KIT_SRC" ]; then
+  rm -rf "$HM_HOME/vault-kit"
+  cp -R "$VAULT_KIT_SRC" "$HM_HOME/vault-kit"
+  ok "vault-kit/"
+else
+  warn "missing $VAULT_KIT_SRC; vault commands will not work in consumer repos"
+fi
 
 echo
 echo "OpenCode config -> $OC_DIR"

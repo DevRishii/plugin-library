@@ -1,0 +1,20 @@
+{
+  "profile_id": "valid-profile",
+  "topology": {
+    "name": "Tier Fixture",
+    "max_parallel_subagents": 2,
+    "verification_gate": ["verifier"],
+    "directive": "Fixture profile for model-tier unit tests."
+  },
+  "agent_models": {
+    "builder": "test/builder",
+    "verifier": "test/builder",
+    "hivemind-architect": "test/architect",
+    "spec-architect": "test/ghost",
+    "oracle": "test/frontier"
+  },
+  "opencode_config": {
+    "model": "test/architect",
+    "small_model": "test/builder"
+  }
+}

@@ -59,6 +59,17 @@ The orchestrator classifies every task first and picks exactly one tier.
 Same packet fails twice -> orchestrator direct fix of the ~30-line range, or `@oracle` with a compressed `<problem_capsule>`.
 
 ## 7. SLASH COMMANDS (OPENCODE)
-- `/brainstorm <thought dump>`: spec-architect -> `.opencode/SPEC.md` -> offer `/swarm`.
-- `/swarm <task>`: prints a Parallel Wave Plan (Wave 1 Contract, Wave 2 Parallel Builders [1..N], Wave 3 Verify/Audit), then fires single-message batches.
+- `/brainstorm <thought dump>`: vault-first check (`vault-gate: <state>`) + tier-verified `@spec-architect` -> `.opencode/SPEC.md` -> offer `/swarm`.
+- `/swarm <task>`: prints a Parallel Wave Plan (Wave 1 Contract, Wave 2 Parallel Builders [1..N], Wave 3 Verify/Audit), fires single-message batches, then runs the post-goal Obsidian checkpoint (`post-goal-checkpoint`).
 - `/stack`: show/switch stack + topology.
+
+## 8. OBSIDIAN CONTEXT VAULT & MODEL-TIER INVARIANTS
+1. **Vault-First Before Exploration**:
+   - Every `/brainstorm` and `@spec-architect` run checks `.opencode/vault/00-MOC.md` + `scripts/vault.mjs` (`vault-lifecycle.mjs detect --json`) and emits `vault-gate: <state>` BEFORE exploring repository files.
+   - When a vault is present, run `index` -> `check --strict`, read `.opencode/vault/00-MOC.md` (`[[moc-root]]`), and use `brief` / `find` / `slice` instead of broad `glob **/*` scans.
+2. **Post-Goal Checkpoint & Refresh (`question` Tool)**:
+   - After any Hivemind goal completes with a clean verification gate, run `vault-lifecycle.mjs plan --goal <goal_id> --json` once.
+   - When `absent`/`partial`, ask via `question` (`Yes` / `No`) whether to checkpoint the project into an Obsidian Context Vault (`scaffold --yes` + `check --strict`).
+   - When `present_*`, ask via `question` (`Yes` / `No`) whether to update the Obsidian Context Vault with latest changes (`update` + `check --strict`). On `No`, write nothing.
+3. **Smarter Architect Tier Law**:
+   - Across every stack/profile and `/brainstorm` spawn, `tier(spec-architect) >= tier(builder) + 1` (`model-tier.mjs verify --strict`). Never spawn `@spec-architect` on a worker-tier model.
