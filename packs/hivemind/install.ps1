@@ -10,29 +10,39 @@
     /stack/opencode-go-max
     /swarm <task>             -> adaptive DAG swarm
     /brainstorm <dump>        -> compile the dump to .opencode/SPEC.md
+    /pr-review <pr-link>      -> multi-angle PR review swarm (parallel lenses + intent gate)
 
   Installs:
     %USERPROFILE%\.config\hivemind\profiles\*.json
     %USERPROFILE%\.config\hivemind\base-opencode.json
     %USERPROFILE%\.config\hivemind\hive-switch.ps1
     %USERPROFILE%\.config\opencode\AGENTS.md, agents\, commands\, skills\
+    %USERPROFILE%\.config\opencode\skills\token-discipline\ and skills\pr-review\ (incl. lenses\)
+    %USERPROFILE%\.config\opencode\skills\pr-review\engine\ (bin\, src\, package.json, README.md)
     %USERPROFILE%\.config\opencode\commands\stack.md + commands\stack\*.md
     %USERPROFILE%\.local\bin\hive-switch.cmd + hive-switch.ps1 (forwarder)
 
   Safe by default:
     - existing profiles and opencode.json are backed up (.bak.<timestamp>)
-    - existing agent prompts, AGENTS.md, /swarm, /brainstorm and /audit-diff are left alone
-    - opencode.json is NOT rewritten unless you pass -Activate <profile>
+    - existing agent prompts, AGENTS.md, /swarm, /brainstorm, /pr-review and /audit-diff are left alone
+    - opencode.json is NOT rewritten unless you pass -Activate <profile>; the
+      focused PR-review reinstall also applies narrow harness registration
+      (architect pr-reviewer allow + reviewer model/default permissions)
 
   Usage:
     powershell -ExecutionPolicy Bypass -File install.ps1
     powershell -ExecutionPolicy Bypass -File install.ps1 -Activate chatgpt-deepseek
     powershell -ExecutionPolicy Bypass -File install.ps1 -Force   # overwrite prompt files
+    powershell -ExecutionPolicy Bypass -File install.ps1 -ReinstallPRReview
+        # refresh ONLY the PR-review command, agent, skill, lenses, and engine;
+        # then apply narrow harness registration; leaves profiles, AGENTS.md,
+        # other commands/agents, and unrelated PATH entries untouched
 #>
 [CmdletBinding()]
 param(
   [string]$Activate = '',
-  [switch]$Force
+  [switch]$Force,
+  [switch]$ReinstallPRReview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,6 +70,115 @@ function Install-File([string]$Source, [string]$Dest, [switch]$KeepExisting) {
   Ok (Split-Path $Dest -Leaf)
 }
 
+function Install-DirFiles([string]$SourceDir, [string]$DestDir, [switch]$KeepExisting) {
+  if (-not (Test-Path $SourceDir)) { return }
+  New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+  Get-ChildItem $SourceDir -File | ForEach-Object {
+    Install-File $_.FullName (Join-Path $DestDir $_.Name) -KeepExisting:$KeepExisting
+  }
+}
+
+# The engine lives with the installed skill so the command never depends on a
+# repository checkout: ~/.config/opencode/skills/pr-review/engine/{bin,src}.
+function Install-PRReviewEngine([switch]$KeepExisting) {
+  $engineSrc = Join-Path (Split-Path -Parent (Split-Path -Parent $Root)) 'plugins\pr-review'
+  if (-not (Test-Path $engineSrc)) { Warn "pr-review engine source not found: $engineSrc"; return }
+  $engineDst = Join-Path $OcDir 'skills\pr-review\engine'
+  Install-DirFiles (Join-Path $engineSrc 'bin') (Join-Path $engineDst 'bin') -KeepExisting:$KeepExisting
+  Install-DirFiles (Join-Path $engineSrc 'src') (Join-Path $engineDst 'src') -KeepExisting:$KeepExisting
+  Install-File (Join-Path $engineSrc 'package.json') (Join-Path $engineDst 'package.json') -KeepExisting:$KeepExisting
+  Install-File (Join-Path $engineSrc 'README.md') (Join-Path $engineDst 'README.md') -KeepExisting:$KeepExisting
+}
+
+function Test-NodeExecutable([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+  try {
+    & $Path --version 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+  } catch {
+    return $false
+  }
+}
+
+function Get-PortableNodePath {
+  return (Join-Path $HomeDir '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe')
+}
+
+function Resolve-NodeCommand {
+  $cmd = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd -and (Test-NodeExecutable $cmd.Source)) { return $cmd.Source }
+  $portable = Get-PortableNodePath
+  if (Test-Path $portable) { return $portable }
+  return ''
+}
+
+# Only install the shim when no working `node` is already on PATH. A good
+# existing Node install is never shadowed, and no runtime is ever downloaded.
+function Ensure-NodeShim {
+  $cmd = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd -and (Test-NodeExecutable $cmd.Source)) {
+    Ok "node available: $($cmd.Source)"
+    return $true
+  }
+  $portable = Get-PortableNodePath
+  if (-not (Test-Path $portable)) {
+    Warn "node not on PATH and portable runtime not found: $portable"
+    return $false
+  }
+  $shimSrc = Join-Path $Root 'bin\node.cmd'
+  if (-not (Test-Path $shimSrc)) {
+    Warn "node.cmd shim source not found: $shimSrc"
+    return $false
+  }
+  $shimDst = Join-Path $BinDir 'node.cmd'
+  Backup-IfExists $shimDst
+  Copy-Item $shimSrc $shimDst -Force
+  Ok "node.cmd shim -> $shimDst (portable runtime)"
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  if ($userPath -notlike "*$BinDir*") {
+    $newPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $BinDir } else { "$userPath;$BinDir" }
+    [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+    Warn "$BinDir added to User PATH so the node.cmd shim resolves (new terminals)"
+  }
+  return $true
+}
+
+function Invoke-HarnessRegistration {
+  $node = Resolve-NodeCommand
+  if (-not $node) {
+    Warn "node not found; harness registration skipped (no downloads)."
+    return
+  }
+  $helper = Join-Path $OcDir 'skills\pr-review\engine\src\harness-registration.mjs'
+  if (-not (Test-Path $helper)) {
+    Warn "harness-registration helper not installed: $helper"
+    return
+  }
+  try {
+    & $node $helper --config-dir $OcDir
+    if ($LASTEXITCODE -ne 0) {
+      Warn "harness registration exited with code $LASTEXITCODE"
+    }
+  } catch {
+    Warn "harness registration failed: $($_.Exception.Message)"
+  }
+}
+
+function Install-PRReviewAssets([switch]$Overwrite) {
+  $keep = -not $Overwrite
+  Install-File (Join-Path $Root 'opencode\commands\pr-review.md') (Join-Path $OcDir 'commands\pr-review.md') -KeepExisting:$keep
+  Install-File (Join-Path $Root 'opencode\agents\pr-reviewer.md') (Join-Path $OcDir 'agents\pr-reviewer.md') -KeepExisting:$keep
+  Install-File (Join-Path $Root 'opencode\skills\pr-review\SKILL.md') (Join-Path $OcDir 'skills\pr-review\SKILL.md') -KeepExisting:$keep
+  $srcLenses = Join-Path $Root 'opencode\skills\pr-review\lenses'
+  if (Test-Path $srcLenses) {
+    New-Item -ItemType Directory -Path (Join-Path $OcDir 'skills\pr-review\lenses') -Force | Out-Null
+    Get-ChildItem (Join-Path $srcLenses '*.md') | ForEach-Object {
+      Install-File $_.FullName (Join-Path (Join-Path $OcDir 'skills\pr-review\lenses') $_.Name) -KeepExisting:$keep
+    }
+  }
+  Install-PRReviewEngine -KeepExisting:$keep
+}
+
 Say ""
 Say "=================================================================="
 Say "  HIVEMIND STACK SWITCHER -> OpenCode v2 (Windows)"
@@ -70,8 +189,23 @@ if ($oc) { Ok "opencode found: $($oc.Source)" }
 else { Warn "opencode not on PATH. Install OpenCode v2 (Desktop + CLI 2.2.x+) first." }
 
 foreach ($d in @((Join-Path $HmHome 'profiles'), (Join-Path $OcDir 'agents'), (Join-Path $OcDir 'commands'),
-                 (Join-Path $OcDir 'commands\stack'), (Join-Path $OcDir 'skills\token-discipline'), $BinDir)) {
+                 (Join-Path $OcDir 'commands\stack'), (Join-Path $OcDir 'skills\token-discipline'),
+                 (Join-Path $OcDir 'skills\pr-review\lenses'), $BinDir)) {
   New-Item -ItemType Directory -Path $d -Force | Out-Null
+}
+
+if ($ReinstallPRReview) {
+  Say ""
+  Say "Focused reinstall -> PR-review assets only"
+  Install-PRReviewAssets -Overwrite
+  Say ""
+  Say "Node + harness registration"
+  Ensure-NodeShim | Out-Null
+  Invoke-HarnessRegistration
+  Say ""
+  Say "Done. Profiles, AGENTS.md, other commands/agents, and unrelated PATH entries were not touched."
+  Say "OpenCode watches the config directory; use /reload if refreshed PR-review assets are not visible."
+  exit 0
 }
 
 Say ""
@@ -93,8 +227,24 @@ Get-ChildItem (Join-Path $Root 'opencode\commands\*.md') | ForEach-Object {
 Get-ChildItem (Join-Path $Root 'opencode\commands\stack\*.md') | ForEach-Object {
   Install-File $_.FullName (Join-Path (Join-Path $OcDir 'commands\stack') $_.Name) -KeepExisting
 }
-Install-File (Join-Path $Root 'opencode\skills\token-discipline\SKILL.md') `
-             (Join-Path $OcDir 'skills\token-discipline\SKILL.md') -KeepExisting
+foreach ($skill in 'token-discipline', 'pr-review') {
+  $srcSkill = Join-Path $Root (Join-Path 'opencode\skills' $skill)
+  $dstSkill = Join-Path $OcDir (Join-Path 'skills' $skill)
+  Install-File (Join-Path $srcSkill 'SKILL.md') (Join-Path $dstSkill 'SKILL.md') -KeepExisting
+  $srcLenses = Join-Path $srcSkill 'lenses'
+  if (Test-Path $srcLenses) {
+    New-Item -ItemType Directory -Path (Join-Path $dstSkill 'lenses') -Force | Out-Null
+    Get-ChildItem (Join-Path $srcLenses '*.md') | ForEach-Object {
+      Install-File $_.FullName (Join-Path (Join-Path $dstSkill 'lenses') $_.Name) -KeepExisting
+    }
+  }
+}
+Install-PRReviewEngine -KeepExisting
+
+Say ""
+Say "Harness registration"
+Ensure-NodeShim | Out-Null
+Invoke-HarnessRegistration
 
 Say ""
 Say "Switcher -> $HmHome + $BinDir"
@@ -144,5 +294,6 @@ Say "  DONE"
 Say "=================================================================="
 Say "  /stack                  show the active stack"
 Say "  /stack/claude-hybrid    switch stack (pick any from the /stack list)"
+Say "  /pr-review <pr-link>    multi-angle PR review swarm"
 Say "  OpenCode watches the config directory and reloads automatically."
 Say "=================================================================="

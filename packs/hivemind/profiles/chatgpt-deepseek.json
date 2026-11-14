@@ -23,7 +23,8 @@
     "oracle": "openai/gpt-6-astra",
     "builder": "opencode/deepseek-v4.1-flash",
     "researcher": "opencode/deepseek-v4.1-flash",
-    "spec-architect": "openai/gpt-6.1-sol"
+    "spec-architect": "openai/gpt-6.1-sol",
+    "pr-reviewer": "opencode/deepseek-v4.1-flash"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",

@@ -1,0 +1,47 @@
+diff --git a/src/cache-store.mjs b/src/cache-store.mjs
+--- a/src/cache-store.mjs
++++ b/src/cache-store.mjs
+@@ -1,8 +1,17 @@
+ import { readFileSync, writeFileSync } from 'node:fs'
+ import { join } from 'node:path'
+ 
+ const cache = new Map()
+ 
+ export function readCache(key) {
+   return cache.get(key) ?? null
+ }
++export function cachePath(root, key) {
++  return join(root, key)
++}
++
++export async function refreshCache(key, value) {
++  const current = cache.get(key)
++  await writeFile(join(cacheRoot, key), JSON.stringify(current ?? value))
++  cache.set(key, value)
++  return cache.get(key)
++}
+diff --git a/packs/hivemind/opencode/commands/demo.md b/packs/hivemind/opencode/commands/demo.md
+--- a/packs/hivemind/opencode/commands/demo.md
++++ b/packs/hivemind/opencode/commands/demo.md
+@@ -1,5 +1,9 @@
+ ---
+ description: Demo command
+ ---
+ 
+-Run the demo with `$ARGUMENTS` inline.
++Run the demo:
++
++```bash
++node scripts/demo.mjs $ARGUMENTS
++```
+diff --git a/src/telemetry-secret.mjs b/src/telemetry-secret.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/telemetry-secret.mjs
+@@ -0,0 +1,6 @@
++import { appendFileSync } from 'node:fs'
++
++export function recordTelemetry(event) {
++  appendFileSync('.cache/telemetry.log', `${new Date().toISOString()} ${event}\n`)
++}
++

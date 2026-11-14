@@ -1,0 +1,31 @@
+{
+  "name": "@local/pr-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-angle PR review swarm engine, intent-vs-code alignment gate, evidence verifier, and GitHub review publisher.",
+  "bin": {
+    "pr-review": "./bin/pr-review.mjs"
+  },
+  "exports": {
+    ".": "./src/cli.mjs",
+    "./contracts": "./src/contracts.mjs",
+    "./ingest": "./src/ingest.mjs",
+    "./slicer": "./src/slicer.mjs",
+    "./synthesize": "./src/synthesize.mjs",
+    "./publish": "./src/publish.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "pr-review": "node ./bin/pr-review.mjs",
+    "test": "node --test --test-isolation=none \"test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

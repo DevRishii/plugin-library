@@ -22,7 +22,8 @@
     "oracle": "openai/gpt-6-astra",
     "builder": "anthropic/claude-sonnet-5-5",
     "researcher": "opencode/deepseek-v4.1-flash",
-    "spec-architect": "anthropic/claude-opus-5-5"
+    "spec-architect": "anthropic/claude-opus-5-5",
+    "pr-reviewer": "anthropic/claude-sonnet-5-5"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",

@@ -230,7 +230,7 @@ foreach ($Member in $Data.topology.verification_gate) {
 }
 # Baseline step budgets, re-applied on every switch so a profile override never
 # leaks into the next stack. Profiles override via topology.agent_steps.
-$StepMap = @{ builder = 25; researcher = 12; scout = 8; surgeon = 15; verifier = 12; auditor = 10; oracle = 6; "spec-architect" = 12 }
+$StepMap = @{ builder = 25; researcher = 12; scout = 8; surgeon = 15; verifier = 12; auditor = 10; oracle = 6; "spec-architect" = 12; "pr-reviewer" = 12 }
 foreach ($Name in @($StepMap.Keys)) {
     if (-not $Data.agent_models.PSObject.Properties[$Name]) { $StepMap.Remove($Name) }
 }

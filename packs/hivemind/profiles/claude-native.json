@@ -22,7 +22,8 @@
     "oracle": "anthropic/claude-fable-5-2",
     "builder": "anthropic/claude-sonnet-5-5",
     "researcher": "anthropic/claude-haiku-5-5",
-    "spec-architect": "anthropic/claude-opus-5-5"
+    "spec-architect": "anthropic/claude-opus-5-5",
+    "pr-reviewer": "anthropic/claude-sonnet-5-5"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",

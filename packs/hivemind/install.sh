@@ -10,23 +10,28 @@
 #   /stack/opencode-go-max
 #   /swarm <task>              -> adaptive DAG swarm
 #   /brainstorm <dump>         -> compile the dump to .opencode/SPEC.md
+#   /pr-review <pr-link>       -> multi-angle PR review swarm (parallel lenses + intent gate)
 #
 # Installs:
 #   ~/.config/hivemind/profiles/*.json
 #   ~/.config/hivemind/base-opencode.json
 #   ~/.config/hivemind/hive-switch
 #   ~/.config/opencode/{AGENTS.md,agents/,commands/,skills/}
+#   ~/.config/opencode/skills/token-discipline/ and skills/pr-review/ (incl. lenses/)
+#   ~/.config/opencode/skills/pr-review/engine/ (bin/, src/, package.json, README.md)
 #   ~/.config/opencode/commands/stack.md + commands/stack/*.md
 #   ~/.local/bin/hive-switch
 #
 # Safe by default:
 #   - existing profiles and opencode.json are backed up (.bak.<timestamp>)
-#   - existing agent prompts, AGENTS.md, /swarm, /brainstorm and /audit-diff are left alone
+#   - existing agent prompts, AGENTS.md, /swarm, /brainstorm, /pr-review and /audit-diff are left alone
 #   - opencode.json is NOT rewritten unless you pass -a <profile>
 #
 # Usage:
 #   bash install.sh
 #   bash install.sh -a chatgpt-deepseek     # also activate a stack
+#   bash install.sh -r                      # refresh ONLY PR-review assets (command, agent, skill, lenses, engine)
+#                                           # then apply narrow harness registration
 #   FORCE=1 bash install.sh                 # overwrite existing prompt files
 
 set -euo pipefail
@@ -38,11 +43,13 @@ BIN_DIR="$HOME/.local/bin"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 FORCE="${FORCE:-0}"
 ACTIVATE=""
+PR_REVIEW_ONLY=0
 
-while getopts "a:h" opt; do
+while getopts "a:hr" opt; do
   case "$opt" in
     a) ACTIVATE="$OPTARG" ;;
-    h) sed -n '2,26p' "$0"; exit 0 ;;
+    r) PR_REVIEW_ONLY=1 ;;
+    h) sed -n '2,35p' "$0"; exit 0 ;;
     *) echo "unknown option" >&2; exit 2 ;;
   esac
 done
@@ -63,6 +70,66 @@ install_file() { # src dest keep_existing
   ok "$(basename "$dest")"
 }
 
+install_dir_files() { # src_dir dest_dir keep_existing
+  local src_dir="$1" dest_dir="$2" keep_existing="${3:-0}"
+  [ -d "$src_dir" ] || return 0
+  mkdir -p "$dest_dir"
+  local f
+  for f in "$src_dir"/*; do
+    [ -f "$f" ] || continue
+    install_file "$f" "$dest_dir/$(basename "$f")" "$keep_existing"
+  done
+}
+
+# Engine lives with the installed skill so the command never depends on a repo
+# checkout: ~/.config/opencode/skills/pr-review/engine/{bin,src}.
+install_pr_review_engine() { # keep_existing
+  local keep="${1:-0}"
+  local engine_src="$ROOT/../../plugins/pr-review"
+  if [ ! -d "$engine_src" ]; then
+    warn "pr-review engine source not found: $engine_src"; return 0
+  fi
+  local engine_dst="$OC_DIR/skills/pr-review/engine"
+  install_dir_files "$engine_src/bin" "$engine_dst/bin" "$keep"
+  install_dir_files "$engine_src/src" "$engine_dst/src" "$keep"
+  install_file "$engine_src/package.json" "$engine_dst/package.json" "$keep"
+  install_file "$engine_src/README.md" "$engine_dst/README.md" "$keep"
+  chmod +x "$engine_dst/bin/pr-review.mjs" 2>/dev/null || true
+}
+
+# Durable local wiring. Uses the Node already on PATH; never downloads a runtime.
+register_harness() {
+  local helper="$OC_DIR/skills/pr-review/engine/src/harness-registration.mjs"
+  if [ ! -f "$helper" ]; then
+    warn "harness-registration helper not installed: $helper"
+    return 0
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    warn "node not found on PATH; harness registration skipped (no downloads)."
+    return 0
+  fi
+  if ! node "$helper" --config-dir "$OC_DIR"; then
+    warn "harness registration failed; parse errors leave config files unchanged."
+    return 0
+  fi
+}
+
+install_pr_review_assets() { # keep_existing
+  local keep="${1:-1}"
+  install_file "$ROOT/opencode/commands/pr-review.md" "$OC_DIR/commands/pr-review.md" "$keep"
+  install_file "$ROOT/opencode/agents/pr-reviewer.md" "$OC_DIR/agents/pr-reviewer.md" "$keep"
+  install_file "$ROOT/opencode/skills/pr-review/SKILL.md" "$OC_DIR/skills/pr-review/SKILL.md" "$keep"
+  if [ -d "$ROOT/opencode/skills/pr-review/lenses" ]; then
+    mkdir -p "$OC_DIR/skills/pr-review/lenses"
+    local f
+    for f in "$ROOT"/opencode/skills/pr-review/lenses/*.md; do
+      [ -f "$f" ] || continue
+      install_file "$f" "$OC_DIR/skills/pr-review/lenses/$(basename "$f")" "$keep"
+    done
+  fi
+  install_pr_review_engine "$keep"
+}
+
 echo
 echo "=================================================================="
 echo "  HIVEMIND STACK SWITCHER -> OpenCode v2 (macOS / Linux / WSL)"
@@ -75,7 +142,20 @@ else
 fi
 
 mkdir -p "$HM_HOME/profiles" "$OC_DIR/agents" "$OC_DIR/commands/stack" \
-         "$OC_DIR/skills/token-discipline" "$BIN_DIR"
+         "$OC_DIR/skills/token-discipline" "$OC_DIR/skills/pr-review/lenses" "$BIN_DIR"
+
+if [ "$PR_REVIEW_ONLY" = "1" ]; then
+  echo
+  echo "Focused reinstall -> PR-review assets only"
+  install_pr_review_assets 0
+  echo
+  echo "Harness registration"
+  register_harness
+  echo
+  echo "Done. Profiles, AGENTS.md, other commands/agents, and PATH were not touched."
+  echo "OpenCode watches the config directory; use /reload if refreshed PR-review assets are not visible."
+  exit 0
+fi
 
 echo
 echo "Profiles -> $HM_HOME/profiles"
@@ -96,8 +176,19 @@ done
 for f in "$ROOT"/opencode/commands/stack/*.md; do
   install_file "$f" "$OC_DIR/commands/stack/$(basename "$f")" 1
 done
-install_file "$ROOT/opencode/skills/token-discipline/SKILL.md" \
-             "$OC_DIR/skills/token-discipline/SKILL.md" 1
+for skill in token-discipline pr-review; do
+  install_file "$ROOT/opencode/skills/$skill/SKILL.md" "$OC_DIR/skills/$skill/SKILL.md" 1
+done
+if [ -d "$ROOT/opencode/skills/pr-review/lenses" ]; then
+  for f in "$ROOT"/opencode/skills/pr-review/lenses/*.md; do
+    install_file "$f" "$OC_DIR/skills/pr-review/lenses/$(basename "$f")" 1
+  done
+fi
+install_pr_review_engine 1
+
+echo
+echo "Harness registration"
+register_harness
 
 echo
 echo "Switcher -> $BIN_DIR"
@@ -143,5 +234,6 @@ echo "  DONE"
 echo "=================================================================="
 echo "  /stack                  show the active stack"
 echo "  /stack/claude-hybrid    switch stack (pick any from the /stack list)"
+echo "  /pr-review <pr-link>    multi-angle PR review swarm"
 echo "  OpenCode watches the config directory and reloads automatically."
 echo "=================================================================="
