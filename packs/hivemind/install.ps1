@@ -123,7 +123,7 @@ if ($ReinstallPRReview) {
   Install-PRReviewAssets -Overwrite
   Say ""
   Say "Done. Profiles, AGENTS.md, opencode.json, other commands/agents, and PATH were not touched."
-  Say "Restart OpenCode Desktop once to reload the refreshed PR-review assets."
+  Say "OpenCode watches the config directory; use /reload if refreshed PR-review assets are not visible."
   exit 0
 }
 

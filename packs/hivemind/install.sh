@@ -132,7 +132,7 @@ if [ "$PR_REVIEW_ONLY" = "1" ]; then
   install_pr_review_assets 0
   echo
   echo "Done. Profiles, AGENTS.md, opencode.json, other commands/agents, and PATH were not touched."
-  echo "Restart OpenCode Desktop once to reload the refreshed PR-review assets."
+  echo "OpenCode watches the config directory; use /reload if refreshed PR-review assets are not visible."
   exit 0
 fi
 
