@@ -5,22 +5,28 @@ A `/stack` picker for [OpenCode](https://opencode.ai) v2. Swap provider stacks
 no terminal, no restart.
 
 ```
-/stack                      → show the active stack
+/stack                      → show the active stack and topology
 /stack/chatgpt-deepseek     → pick a stack (each shows its use case)
 /stack/claude-hybrid
 /stack/claude-native
 /stack/argon-deepseek
 /stack/opencode-go-max
+/swarm <task>               → adaptive DAG swarm
+/brainstorm <dump>          → compile the dump to .opencode/SPEC.md
 ```
 
 Typing `/stack` in the composer lists every stack with its description, so you
 choose from a menu instead of typing a profile name.
+
+Hivemind v2.5 adds an adaptive DAG `/swarm` and a `/brainstorm` front door that
+compiles a thought dump into `.opencode/SPEC.md` before any code is written.
 
 ## Requirements
 
 - OpenCode **v2** (`opencode` CLI 2.2.x or newer, and/or OpenCode Desktop v2).
   v1 is not supported.
 - Windows, macOS, Linux or WSL.
+- Python 3 on macOS / Linux / WSL (the POSIX switcher uses it).
 
 ## Install
 
@@ -48,22 +54,37 @@ commands). After that, switching never needs a restart.
 
 ## The stacks
 
-| Command | Orchestrator | Workers | Use it when |
-|---|---|---|---|
-| `/stack/chatgpt-deepseek` | GPT-6.1 Sol | DeepSeek Flash | Default. Day-to-day features at near-zero marginal cost. |
-| `/stack/claude-hybrid` | Claude Opus 5.5 | Sonnet 5.5 + DeepSeek Flash | Hard refactors needing strong architecture and surgical edits. |
-| `/stack/claude-native` | Claude Opus 5.5 | Sonnet 5.5 + Haiku 5.5 | Pure Anthropic; no DeepSeek key needed. |
-| `/stack/argon-deepseek` | Gemini 4 Argon | DeepSeek Flash | Long runs without burning ChatGPT/Claude quota. |
-| `/stack/opencode-go-max` | GPT-6.1 Sol | GLM-5.3-Flash + DeepSeek Flash | High-volume parallel packet work. |
+| Command | Topology (cap) | Orchestrator | Workers | Use it when |
+|---|---|---|---|---|
+| `/stack/chatgpt-deepseek` | High-Concurrency DeepSeek Fan-Out (6) | GPT-6.1 Sol | DeepSeek Flash | Default. Day-to-day features at near-zero marginal cost. |
+| `/stack/claude-hybrid` | Autonomous Feature Pods (4) | Claude Opus 5.5 | Sonnet 5.5 + DeepSeek Flash | Hard refactors needing strong architecture and surgical edits. |
+| `/stack/claude-native` | Autonomous Feature Pods (4) | Claude Opus 5.5 | Sonnet 5.5 + Haiku 5.5 | Pure Anthropic; no DeepSeek key needed. |
+| `/stack/argon-deepseek` | Macro-Context Lead + Parallel Builders (5) | Gemini 4 Argon | DeepSeek Flash | Long runs without burning ChatGPT/Claude quota. |
+| `/stack/opencode-go-max` | Full Ensemble Council (6) | GPT-6.1 Sol | GLM-5.3-Flash + DeepSeek Flash | High-volume parallel packet work. |
 
-Each stack also repoints the six Hivemind agents (`hivemind-architect`, `scout`,
-`surgeon`, `verifier`, `auditor`, `oracle`).
+Each stack also repoints the nine Hivemind agents (`hivemind-architect`,
+`builder`, `researcher`, `scout`, `spec-architect`, `surgeon`, `verifier`,
+`auditor`, `oracle`) and applies its agent step budgets.
+
+## Commands
+
+- `/swarm <task>` — adaptive DAG. Tier 1 runs direct for <= 2 files; otherwise
+  recon -> contract lock -> parallel builders -> verify/audit gate.
+- `/brainstorm <dump>` — `@spec-architect` writes `.opencode/SPEC.md` (contracts,
+  ownership matrix, verification), then offers `/swarm`.
+- `/audit-diff` — read-only review of the working diff.
+- `/stack` — show the active stack and topology; `/stack/<name>` switches.
 
 ## How it works
 
-`hive-switch` writes `~/.config/opencode/opencode.json` from the chosen profile
-in `~/.config/hivemind/profiles/`, and rewrites the `model:` line of each agent
-in `~/.config/opencode/agents/`.
+`hive-switch` deep-merges `base-opencode.json` (provider options and model
+variants) under the chosen profile's `opencode_config`, writes
+`~/.config/opencode/opencode.json`, and rewrites the `model:` and `steps:` lines
+of every mapped agent in `~/.config/opencode/agents/`.
+
+It also regenerates the `ACTIVE STACK TOPOLOGY` block in `AGENTS.md` — topology
+name, `MAX_PARALLEL_SUBAGENTS`, verification gate, step budgets, and the stack
+directive — and mirrors agents/commands to `~/.config/hivemind/opencode/`.
 
 OpenCode watches its config directory and **reloads automatically**, so the
 running Desktop app picks up a switch within a second or two — no restart, no
@@ -89,12 +110,15 @@ OpenCode resolves from the environment at runtime.
 
 ```
 ~/.config/hivemind/profiles/*.json          5 stack definitions
-~/.config/opencode/AGENTS.md                global rules
-~/.config/opencode/agents/*.md              6 Hivemind agents
-~/.config/opencode/commands/                /swarm, /audit-diff, /stack
+~/.config/hivemind/base-opencode.json       shared provider / model config
+~/.config/hivemind/hive-switch[.ps1]        switcher implementation
+~/.config/hivemind/opencode/                mirror of agents, commands, AGENTS.md
+~/.config/opencode/AGENTS.md                global rules + generated topology block
+~/.config/opencode/agents/*.md              9 Hivemind agents
+~/.config/opencode/commands/                /swarm, /brainstorm, /audit-diff, /stack
 ~/.config/opencode/commands/stack/*.md      one command per stack
 ~/.config/opencode/skills/                  token-discipline skill
-~/.local/bin/hive-switch[.cmd|.ps1]         the switcher
+~/.local/bin/hive-switch[.cmd|.ps1]         PATH entry point / forwarder
 ```
 
 ## Safety
@@ -102,9 +126,12 @@ OpenCode resolves from the environment at runtime.
 The installer is non-destructive:
 
 - existing `opencode.json` and profiles are backed up as `*.bak.<timestamp>`
-- existing agent prompts, `AGENTS.md`, `/swarm` and `/audit-diff` are **kept**
-  (pass `-Force` / `FORCE=1` to overwrite them with the bundled versions)
+- existing agent prompts, `AGENTS.md`, `/swarm`, `/brainstorm` and `/audit-diff`
+  are **kept** (pass `-Force` / `FORCE=1` to overwrite them with the bundled
+  versions)
 - `opencode.json` is only rewritten when you explicitly activate a stack
+- `AGENTS.md` changes on a switch only inside the `HIVEMIND:TOPOLOGY` markers
+  (the generated block); edit the constitution above them by hand
 
 ## Troubleshooting
 
@@ -124,5 +151,7 @@ even without it.
 ```bash
 rm -rf ~/.config/opencode/commands/stack
 rm -f  ~/.config/opencode/commands/stack.md
+rm -rf ~/.config/hivemind/opencode
+rm -f  ~/.config/hivemind/base-opencode.json ~/.config/hivemind/hive-switch.ps1
 rm -f  ~/.local/bin/hive-switch ~/.local/bin/hive-switch.ps1 ~/.local/bin/hive-switch.cmd
 ```

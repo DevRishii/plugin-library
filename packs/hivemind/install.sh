@@ -2,22 +2,26 @@
 # install.sh — Hivemind Stack Switcher for OpenCode v2 (macOS / Linux / WSL)
 #
 # What you get in the composer after installing:
-#   /stack                     -> show the active stack
+#   /stack                     -> show the active stack + topology
 #   /stack/chatgpt-deepseek    -> pick a stack from the list (descriptions shown)
 #   /stack/claude-hybrid
 #   /stack/claude-native
 #   /stack/argon-deepseek
 #   /stack/opencode-go-max
+#   /swarm <task>              -> adaptive DAG swarm
+#   /brainstorm <dump>         -> compile the dump to .opencode/SPEC.md
 #
 # Installs:
 #   ~/.config/hivemind/profiles/*.json
+#   ~/.config/hivemind/base-opencode.json
+#   ~/.config/hivemind/hive-switch
 #   ~/.config/opencode/{AGENTS.md,agents/,commands/,skills/}
 #   ~/.config/opencode/commands/stack.md + commands/stack/*.md
 #   ~/.local/bin/hive-switch
 #
 # Safe by default:
 #   - existing profiles and opencode.json are backed up (.bak.<timestamp>)
-#   - existing agent prompts, AGENTS.md, swarm/audit-diff are left alone
+#   - existing agent prompts, AGENTS.md, /swarm, /brainstorm and /audit-diff are left alone
 #   - opencode.json is NOT rewritten unless you pass -a <profile>
 #
 # Usage:
@@ -78,6 +82,7 @@ echo "Profiles -> $HM_HOME/profiles"
 for f in "$ROOT"/profiles/*.json; do
   install_file "$f" "$HM_HOME/profiles/$(basename "$f")" 0
 done
+install_file "$ROOT/base-opencode.json" "$HM_HOME/base-opencode.json" 0
 
 echo
 echo "OpenCode config -> $OC_DIR"

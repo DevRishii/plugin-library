@@ -1,18 +1,33 @@
 {
   "profile_id": "argon-deepseek",
   "description": "Google Gemini 4 Argon (via $10/mo GCP Credit) Orchestrator + DeepSeek V4.1 Flash Workers (Zero ChatGPT/Claude Quota Burn)",
+  "topology": {
+    "name": "Macro-Context Lead + Parallel Builders",
+    "max_parallel_subagents": 5,
+    "verification_gate": [
+      "verifier",
+      "auditor"
+    ],
+    "agent_steps": {
+      "builder": 25
+    },
+    "directive": "You have a massive native context window. Read core files yourself and author complex core algorithms and contracts directly instead of spawning micro-scouts; reserve @researcher for web/API documentation and genuinely separate subsystems. Fan out parallel DeepSeek @builder subagents for UI, routes, and tests once the core and contracts are locked."
+  },
   "agent_models": {
     "hivemind-architect": "google/gemini-4-argon",
-    "scout": "deepseek/deepseek-flash",
-    "surgeon": "deepseek/deepseek-flash",
-    "verifier": "deepseek/deepseek-flash",
+    "scout": "opencode/deepseek-v4.1-flash",
+    "surgeon": "opencode/deepseek-v4.1-flash",
+    "verifier": "opencode/deepseek-v4.1-flash",
     "auditor": "google/gemini-4-argon",
-    "oracle": "openai/gpt-6-astra"
+    "oracle": "openai/gpt-6-astra",
+    "builder": "opencode/deepseek-v4.1-flash",
+    "researcher": "opencode/deepseek-v4.1-flash",
+    "spec-architect": "google/gemini-4-argon"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",
     "model": "google/gemini-4-argon",
-    "small_model": "deepseek/deepseek-flash",
+    "small_model": "opencode/deepseek-v4.1-flash",
     "provider": {
       "deepseek": {
         "npm": "@ai-sdk/openai-compatible",
@@ -51,15 +66,11 @@
         "model": "google/gemini-4-argon"
       },
       "build": {
-        "model": "deepseek/deepseek-flash"
+        "model": "opencode/deepseek-v4.1-flash"
       },
       "explore": {
-        "model": "deepseek/deepseek-flash"
+        "model": "opencode/deepseek-v4.1-flash"
       }
-    },
-    "plugins": [
-      "opencode-openai-codex-auth",
-      "@ex-machina/opencode-anthropic-auth"
-    ]
+    }
   }
 }

@@ -1,100 +1,286 @@
 #!/usr/bin/env bash
+# Hivemind Swarm v2.5 stack + topology switcher (macOS / Linux / WSL).
+# Requires python3 — same dependency as the previous release's switcher.
 set -euo pipefail
 
 HIVEMIND_HOME="${HIVEMIND_HOME:-$HOME/.config/hivemind}"
 OPENCODE_DIR="${OPENCODE_DIR:-$HOME/.config/opencode}"
-CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+export HIVEMIND_HOME OPENCODE_DIR
 
-usage() {
-  echo "=================================================================="
-  echo "  HIVEMIND SWARM PROFILE SWITCHER (OpenCode + Claude Code + DSH)"
-  echo "=================================================================="
-  echo "Usage: hive-switch <profile-name> | status | list"
-  echo ""
-  echo "Available Profiles:"
-  echo "  chatgpt-deepseek  -> GPT-6.1 Sol / GPT-6 Astra (Plus OAuth) + DeepSeek V4.1 Flash Workers [DEFAULT]"
-  echo "  claude-hybrid     -> Claude Opus 5.5 / Sonnet 5.5 + DeepSeek V4.1 Flash Scout/Verifier + GPT-6 Astra Oracle"
-  echo "  claude-native     -> Pure Claude Code Pro/Max (Opus 5.5 + Sonnet 5.5 + Haiku 5.5)"
-  echo "  argon-deepseek    -> Gemini 4 Argon ($10 GCP Credit) + DeepSeek V4.1 Flash Workers"
-  echo "  opencode-go-max   -> GPT-6.1 Sol + OpenCode Go ($10/mo GLM-5.3-Flash & DeepSeek V4.1 Flash)"
-  echo ""
-}
-
-if [[ $# -lt 1 ]]; then
-  usage
-  exit 0
-fi
-
-CMD="$1"
-
-if [[ "$CMD" == "list" || "$CMD" == "--help" || "$CMD" == "-h" ]]; then
-  usage
-  exit 0
-fi
-
-if [[ "$CMD" == "status" ]]; then
-  ACTIVE_FILE="$HIVEMIND_HOME/active_profile"
-  if [[ -f "$ACTIVE_FILE" ]]; then
-    echo "Active Hivemind Profile: $(cat "$ACTIVE_FILE")"
-  else
-    echo "Active Hivemind Profile: (not set yet)"
-  fi
-  echo ""
-  echo "OpenCode Primary Model:"
-  grep -E '"model":' "$OPENCODE_DIR/opencode.json" 2>/dev/null | head -n 2 || echo "  (opencode.json not found)"
-  echo ""
-  echo "OpenCode Agent Routing ($OPENCODE_DIR/agents/):"
-  for f in "$OPENCODE_DIR"/agents/*.md; do
-    [[ -f "$f" ]] || continue
-    m=$(grep -E '^model:' "$f" | head -n 1 | awk '{print $2}')
-    printf "  %-24s -> %s\n" "$(basename "$f" .md)" "${m:-default}"
-  done
-  exit 0
-fi
-
-PROFILE_JSON="$HIVEMIND_HOME/profiles/${CMD}.json"
-if [[ ! -f "$PROFILE_JSON" ]]; then
-  echo "Error: Unknown profile '$CMD'. Run 'hive-switch list' to see valid options."
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[hive-switch] ERROR: python3 is required" >&2
   exit 1
 fi
 
-mkdir -p "$OPENCODE_DIR/agents" "$HIVEMIND_HOME"
-
-# Use Python 3 (or node fallback) to cleanly extract opencode_config and rewrite agent frontmatter models
-python3 - "$PROFILE_JSON" "$OPENCODE_DIR" "$CLAUDE_DIR" <<'PYEOF'
+exec python3 - "$@" <<'PYEOF'
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
-profile_path = Path(sys.argv[1])
-opencode_dir = Path(sys.argv[2])
-claude_dir = Path(sys.argv[3])
+HIVEMIND_HOME = Path(os.environ["HIVEMIND_HOME"])
+OPENCODE_DIR = Path(os.environ["OPENCODE_DIR"])
+PROFILES_DIR = HIVEMIND_HOME / "profiles"
+ACTIVE_FILE = HIVEMIND_HOME / "active_profile"
+BASE_CONFIG = HIVEMIND_HOME / "base-opencode.json"
+BEGIN = "<!-- HIVEMIND:TOPOLOGY:BEGIN -->"
+END = "<!-- HIVEMIND:TOPOLOGY:END -->"
 
-data = json.loads(profile_path.read_text(encoding="utf-8"))
-opencode_cfg = data["opencode_config"]
-agent_models = data["agent_models"]
+BASE_STEPS = {
+    "builder": 25,
+    "researcher": 12,
+    "scout": 8,
+    "surgeon": 15,
+    "verifier": 12,
+    "auditor": 10,
+    "oracle": 6,
+    "spec-architect": 12,
+}
 
-# 1. Backup and write opencode.json
-target_cfg = opencode_dir / "opencode.json"
-if target_cfg.exists():
-    (opencode_dir / "opencode.json.prev").write_text(target_cfg.read_text(encoding="utf-8"), encoding="utf-8")
-target_cfg.write_text(json.dumps(opencode_cfg, indent=2) + "
-", encoding="utf-8")
+USAGE = """\
+Usage: hive-switch <profile> | status | list | validate [profile|all]
+  <profile>  write opencode.json, patch agent models + step budgets, and regenerate
+             the ACTIVE STACK TOPOLOGY block in AGENTS.md
+  validate   check a profile's model IDs against 'opencode models'"""
 
-# 2. Update model: field in each ~/.config/opencode/agents/<agent>.md
-agents_dir = opencode_dir / "agents"
-for agent_name, model_slug in agent_models.items():
-    md_file = agents_dir / f"{agent_name}.md"
-    if md_file.exists():
-        text = md_file.read_text(encoding="utf-8")
-        text = re.sub(r"(?m)^model:\s*.*$", f"model: {model_slug}", text, count=1)
-        md_file.write_text(text, encoding="utf-8")
 
-print(f"[OK] Switched OpenCode config & 6 Hivemind agents to profile: {data['profile_id']}")
-print(f"     {data['description']}")
-for k, v in agent_models.items():
-    print(f"     - @{k:<20} -> {v}")
+def fail(message):
+    print(f"[hive-switch] ERROR: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def read_text(path):
+    with open(path, "r", encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def write_text(path, text):
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
+def load_json(path):
+    try:
+        return json.loads(read_text(path))
+    except FileNotFoundError:
+        fail(f"missing {path}")
+    except json.JSONDecodeError as exc:
+        fail(f"{path} is not valid JSON: {exc}")
+
+
+def profile_names():
+    return sorted(p.stem for p in PROFILES_DIR.glob("*.json"))
+
+
+def get_profile(name):
+    path = PROFILES_DIR / f"{name}.json"
+    if not path.is_file():
+        fail(f"Unknown profile '{name}'. Run 'hive-switch list'.")
+    data = load_json(path)
+    for key in ("agent_models", "opencode_config", "topology"):
+        if key not in data:
+            fail(f"Profile '{name}' is missing required key '{key}'.")
+    for key in ("name", "max_parallel_subagents", "verification_gate", "directive"):
+        if key not in data["topology"]:
+            fail(f"Profile '{name}' topology is missing '{key}'.")
+    maximum = data["topology"]["max_parallel_subagents"]
+    if not isinstance(maximum, int) or isinstance(maximum, bool):
+        fail(f"Profile '{name}': max_parallel_subagents must be an integer.")
+    if not 1 <= maximum <= 12:
+        fail(f"Profile '{name}': max_parallel_subagents must be 1..12 (got {maximum}).")
+    return data
+
+
+def summary(data):
+    topology = data["topology"]
+    gate = " + ".join("@" + agent for agent in topology["verification_gate"])
+    return (
+        f"{data['profile_id']} | Topology: {topology['name']} | "
+        f"MAX_PARALLEL_SUBAGENTS={topology['max_parallel_subagents']} | Gate: {gate}"
+    )
+
+
+def merge_config(base, override):
+    if not isinstance(base, dict) or not isinstance(override, dict):
+        return override
+    merged = dict(base)
+    for key, value in override.items():
+        merged[key] = merge_config(merged.get(key), value)
+    return merged
+
+
+def patch_frontmatter(path, model, steps):
+    text = read_text(path)
+    match = re.match(r"\A---\r?\n([\s\S]*?)\r?\n---", text)
+    if not match:
+        fail(f"No YAML frontmatter in {path}")
+    front = match.group(1)
+    front, count = re.subn(r"(?m)^model:[^\r\n]*", f"model: {model}", front, count=1)
+    if count == 0:
+        fail(f"No 'model:' line in frontmatter of {path}")
+    if steps is not None:
+        front = re.sub(r"(?m)^maxSteps:[^\r\n]*\r?\n?", "", front)
+        if re.search(r"(?m)^steps:[^\r\n]*$", front):
+            front = re.sub(r"(?m)^steps:[^\r\n]*", f"steps: {steps}", front, count=1)
+        else:
+            front = re.sub(
+                r"(?m)^model:[^\r\n]*",
+                lambda m: m.group(0) + f"\nsteps: {steps}",
+                front,
+                count=1,
+            )
+    start, end = match.span(1)
+    write_text(path, text[:start] + front + text[end:])
+
+
+def topology_block(data):
+    topology = data["topology"]
+    lines = [
+        BEGIN,
+        "## ACTIVE STACK TOPOLOGY",
+        f"Generated by hive-switch. Do not edit by hand; edit profiles/{data['profile_id']}.json instead.",
+        "",
+        f"- Stack: `{data['profile_id']}`",
+        f"- Topology: **{topology['name']}**",
+        f"- MAX_PARALLEL_SUBAGENTS={topology['max_parallel_subagents']} (hard cap on subagent calls per single-message batch)",
+        "- Verification gate (spawn concurrently in ONE batch): "
+        + ", ".join("@" + agent for agent in topology["verification_gate"]),
+    ]
+    agent_steps = topology.get("agent_steps")
+    if agent_steps:
+        lines.append("- Step budgets: " + ", ".join(f"{k}={v}" for k, v in agent_steps.items()))
+    lines.append("- Models: " + "; ".join(f"{k}={v}" for k, v in data["agent_models"].items()))
+    lines += ["", "### Stack directive for hivemind-architect", topology["directive"], END]
+    return "\n".join(lines)
+
+
+def update_agents_md(data):
+    path = OPENCODE_DIR / "AGENTS.md"
+    if not path.is_file():
+        fail(f"Missing {path}")
+    text = read_text(path)
+    block = topology_block(data)
+    begin = text.find(BEGIN)
+    end = text.find(END)
+    if begin >= 0 and end > begin:
+        text = text[:begin] + block + text[end + len(END):]
+    elif begin < 0 and end < 0:
+        text = text.rstrip() + "\n\n" + block + "\n"
+    else:
+        fail(f"AGENTS.md topology markers are unbalanced; fix {path} by hand.")
+    write_text(path, text)
+
+
+def sync_mirror():
+    mirror = HIVEMIND_HOME / "opencode"
+    mirror.mkdir(parents=True, exist_ok=True)
+    for sub in ("agents", "commands"):
+        source = OPENCODE_DIR / sub
+        target = mirror / sub
+        if source.is_dir():
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(source, target)
+    agents_md = OPENCODE_DIR / "AGENTS.md"
+    if agents_md.is_file():
+        shutil.copy2(agents_md, mirror / "AGENTS.md")
+
+
+def do_switch(name):
+    data = get_profile(name)
+    agents_dir = OPENCODE_DIR / "agents"
+    for agent in data["agent_models"]:
+        if not (agents_dir / f"{agent}.md").is_file():
+            fail(f"Profile '{name}' maps agent '{agent}' but {agents_dir / (agent + '.md')} does not exist.")
+    for gate in data["topology"]["verification_gate"]:
+        if gate not in data["agent_models"]:
+            fail(f"verification_gate names unknown agent '{gate}'.")
+
+    step_map = {k: v for k, v in BASE_STEPS.items() if k in data["agent_models"]}
+    for agent, steps in data["topology"].get("agent_steps", {}).items():
+        if agent not in data["agent_models"]:
+            fail(f"agent_steps names unknown agent '{agent}'.")
+        if int(steps) < 1:
+            fail(f"agent_steps.{agent} must be >= 1.")
+        step_map[agent] = int(steps)
+
+    base = load_json(BASE_CONFIG) if BASE_CONFIG.is_file() else {}
+    effective = merge_config(base, data["opencode_config"])
+    write_text(OPENCODE_DIR / "opencode.json", json.dumps(effective, indent=2) + "\n")
+
+    for agent, model in data["agent_models"].items():
+        patch_frontmatter(agents_dir / f"{agent}.md", model, step_map.get(agent))
+
+    update_agents_md(data)
+    sync_mirror()
+    write_text(ACTIVE_FILE, name + "\n")
+    print(f"[OK] Hivemind stack: {summary(data)}")
+
+
+def do_validate(which):
+    try:
+        output = subprocess.check_output(
+            ["opencode", "models"], text=True, stderr=subprocess.DEVNULL
+        )
+    except FileNotFoundError:
+        fail("opencode CLI not found on PATH; cannot validate model IDs.")
+    except subprocess.CalledProcessError:
+        fail("'opencode models' failed; cannot validate model IDs.")
+    known = {
+        line.strip()
+        for line in output.splitlines()
+        if re.match(r"^[^\s/]+/\S+$", line.strip())
+    }
+    if not known:
+        fail("'opencode models' returned no models.")
+    if which == "all":
+        names = profile_names()
+    elif which:
+        names = [which]
+    elif ACTIVE_FILE.is_file():
+        names = [read_text(ACTIVE_FILE).strip()]
+    else:
+        names = []
+    bad = 0
+    for name in names:
+        data = get_profile(name)
+        ids = list(data["agent_models"].values())
+        ids += [data["opencode_config"].get("model", ""), data["opencode_config"].get("small_model", "")]
+        missing = sorted({i for i in ids if i and i not in known})
+        if missing:
+            bad += 1
+            print(f"[WARN] {name} - not in 'opencode models' (provider not authenticated?): {', '.join(missing)}")
+        else:
+            print(f"[OK]   {name} - all model IDs resolve")
+    sys.exit(2 if bad else 0)
+
+
+def main():
+    args = sys.argv[1:]
+    command = args[0] if args else "status"
+    target = args[1] if len(args) > 1 else ""
+
+    if command in ("help", "--help", "-h"):
+        print(USAGE)
+    elif command == "list":
+        active = read_text(ACTIVE_FILE).strip() if ACTIVE_FILE.is_file() else ""
+        for name in profile_names():
+            mark = "*" if name == active else " "
+            print(f"{mark} {summary(get_profile(name))}")
+    elif command == "status":
+        active = read_text(ACTIVE_FILE).strip() if ACTIVE_FILE.is_file() else ""
+        if not active:
+            print("Active Hivemind stack: (not set)")
+        else:
+            print("Active Hivemind stack: " + summary(get_profile(active)))
+    elif command == "validate":
+        do_validate(target)
+    else:
+        do_switch(command)
+
+
+main()
 PYEOF
-
-echo "$CMD" > "$HIVEMIND_HOME/active_profile"

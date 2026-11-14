@@ -22,7 +22,7 @@ a host.
 | [`dsh-doctor`](plugins/dsh-doctor) | 0.1.0 | Deterministic preflight checks for a harness workspace; JSON/`--nightmares` feed, history, explain, dry-run fixes | Standalone CLI |
 | [`theme-engine`](plugins/theme-engine) | 1.0.0 | Eight preset palettes layered over light/dark through theme token overrides | Settings row |
 | [`restart-app`](plugins/restart-app) | 1.0.0 | Restart the desktop app from the composer so installed plugin changes load | Composer button + `/restart-app` |
-| [`packs/hivemind`](packs/hivemind) | v2 | OpenCode `/stack` picker, six agent roles, commands, token-discipline skill, five provider profiles | OpenCode pack (cross-app) |
+| [`packs/hivemind`](packs/hivemind) | v2.5 | OpenCode `/stack` picker, nine agent roles, adaptive DAG `/swarm`, `/brainstorm`, token-discipline skill, five provider profiles | OpenCode pack (cross-app) |
 
 `experiments/sidebar-vertical-split/` holds the design patch and notes for
 stacking the right sidebar's two panes vertically; it is not an installable
@@ -71,9 +71,10 @@ shared rates module is the obvious first cross-package refactor; see
   adjudication. The playbook lives in
   [`skills/fleet-orchestration/SKILL.md`](plugins/fleet-preset/skills/fleet-orchestration/SKILL.md).
 - **`fleet-view`** visualizes what the swarm is doing and what it costs.
-- **`packs/hivemind`** is the cross-app counterpart: agent roles (auditor,
-  architect, oracle, scout, surgeon, verifier), a `/stack` provider switcher,
-  and five profiles for OpenCode v2, installed with one script.
+- **`packs/hivemind`** is the cross-app counterpart: nine agent roles (architect,
+  builder, researcher, scout, spec-architect, surgeon, verifier, auditor,
+  oracle), an adaptive DAG `/swarm`, `/brainstorm` to spec, a `/stack` provider
+  switcher, and five profiles for OpenCode v2, installed with one script.
 
 ## Safety and diagnostics
 

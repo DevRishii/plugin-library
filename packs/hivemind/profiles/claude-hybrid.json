@@ -1,18 +1,33 @@
 {
   "profile_id": "claude-hybrid",
   "description": "Claude Code Pro/Max Hybrid Stack: Claude Opus 5.5 + Sonnet 5.5 for Architecture/Surgical Code, DeepSeek V4.1 Flash for Scout/Verifier, GPT-6 Astra for Oracle",
+  "topology": {
+    "name": "Autonomous Feature Pods",
+    "max_parallel_subagents": 4,
+    "verification_gate": [
+      "verifier",
+      "auditor"
+    ],
+    "agent_steps": {
+      "builder": 35
+    },
+    "directive": "Each @builder is an autonomous feature pod (35 steps): it owns a directory or Git worktree and iterates implementation + unit-test loops inside it until its ACCEPTANCE_CHECK passes. Give pods whole features rather than micro-packets, with fewer, larger slices (max 4 concurrent). DeepSeek handles recon and verification."
+  },
   "agent_models": {
     "hivemind-architect": "anthropic/claude-opus-5-5",
-    "scout": "deepseek/deepseek-flash",
+    "scout": "opencode/deepseek-v4.1-flash",
     "surgeon": "anthropic/claude-sonnet-5-5",
-    "verifier": "deepseek/deepseek-flash",
+    "verifier": "opencode/deepseek-v4.1-flash",
     "auditor": "anthropic/claude-sonnet-5-5",
-    "oracle": "openai/gpt-6-astra"
+    "oracle": "openai/gpt-6-astra",
+    "builder": "anthropic/claude-sonnet-5-5",
+    "researcher": "opencode/deepseek-v4.1-flash",
+    "spec-architect": "anthropic/claude-opus-5-5"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",
     "model": "anthropic/claude-opus-5-5",
-    "small_model": "deepseek/deepseek-flash",
+    "small_model": "opencode/deepseek-v4.1-flash",
     "provider": {
       "deepseek": {
         "npm": "@ai-sdk/openai-compatible",
@@ -54,12 +69,8 @@
         "model": "anthropic/claude-sonnet-5-5"
       },
       "explore": {
-        "model": "deepseek/deepseek-flash"
+        "model": "opencode/deepseek-v4.1-flash"
       }
-    },
-    "plugins": [
-      "opencode-openai-codex-auth",
-      "@ex-machina/opencode-anthropic-auth"
-    ]
+    }
   }
 }

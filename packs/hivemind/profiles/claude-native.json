@@ -1,13 +1,28 @@
 {
   "profile_id": "claude-native",
   "description": "Pure Anthropic Claude Code Stack: Opus 5.5 Orchestrator + Sonnet 5.5 Surgeon + Haiku 5.5 Fast Subagents",
+  "topology": {
+    "name": "Autonomous Feature Pods",
+    "max_parallel_subagents": 4,
+    "verification_gate": [
+      "verifier",
+      "auditor"
+    ],
+    "agent_steps": {
+      "builder": 35
+    },
+    "directive": "Each @builder is an autonomous feature pod (35 steps): it owns a directory or Git worktree and iterates implementation + unit-test loops inside it until its ACCEPTANCE_CHECK passes. Give pods whole features rather than micro-packets, with fewer, larger slices (max 4 concurrent). Haiku handles recon and verification."
+  },
   "agent_models": {
     "hivemind-architect": "anthropic/claude-opus-5-5",
     "scout": "anthropic/claude-haiku-5-5",
     "surgeon": "anthropic/claude-sonnet-5-5",
     "verifier": "anthropic/claude-haiku-5-5",
     "auditor": "anthropic/claude-sonnet-5-5",
-    "oracle": "anthropic/claude-fable-5-2"
+    "oracle": "anthropic/claude-fable-5-2",
+    "builder": "anthropic/claude-sonnet-5-5",
+    "researcher": "anthropic/claude-haiku-5-5",
+    "spec-architect": "anthropic/claude-opus-5-5"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",
@@ -56,10 +71,6 @@
       "explore": {
         "model": "anthropic/claude-haiku-5-5"
       }
-    },
-    "plugins": [
-      "opencode-openai-codex-auth",
-      "@ex-machina/opencode-anthropic-auth"
-    ]
+    }
   }
 }

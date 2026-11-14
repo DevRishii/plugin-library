@@ -11,9 +11,14 @@ license: MIT
 - Step 2: `read` only `line - 10` through `line + 45`.
 - Step 3: Never dump full lockfiles, build artifacts, minified bundles, or migration histories into context.
 
+## 1b. Routing & Batching (v2.5)
+- Tasks touching <= 2 files: work directly (read/grep/edit/bash); ZERO subagent delegation.
+- Multi-module recon or multi-file builds: fan out 3-6 subagents (`@scout`/`@researcher`/`@builder`) in ONE message as a single parallel batch. Sequence only between waves, never within one.
+- Builders get disjoint OWNED_FILES, READ_ONLY_CONTRACTS, ACCEPTANCE_CHECK; `@verifier` + `@auditor` run as one parallel batch.
+
 ## 2. Canonical Inter-Agent Schemas
 
-### A. `<scout_digest>` (Emitted by `@scout`, max 450 tokens)
+### A. `<scout_digest>` (Emitted by `@scout`, max 400 tokens)
 ```xml
 <scout_digest>
   <target file="src/services/auth.ts" lines="42-88">
@@ -24,7 +29,7 @@ license: MIT
 </scout_digest>
 ```
 
-### B. `<work_packet>` (Emitted by `@hivemind-architect` to `@surgeon`)
+### B. `<work_packet>` (Emitted by `@hivemind-architect` to `@surgeon` / `@builder`)
 ```xml
 <work_packet id="PKT-01">
   <file path="src/services/auth.ts" lines="42-88" />

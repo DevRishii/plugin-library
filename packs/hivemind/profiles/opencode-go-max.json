@@ -1,18 +1,34 @@
 {
   "profile_id": "opencode-go-max",
   "description": "OpenCode Go ($10/mo) High-Volume Worker Pool (GLM-5.3-Flash + DeepSeek V4.1 Flash) paired with GPT-6.1 Sol / Claude Opus 5.5",
+  "topology": {
+    "name": "Full Ensemble Council",
+    "max_parallel_subagents": 6,
+    "verification_gate": [
+      "verifier",
+      "auditor",
+      "oracle"
+    ],
+    "agent_steps": {
+      "builder": 25
+    },
+    "directive": "Verification gates are a multi-perspective council: spawn @oracle, @auditor, and @verifier concurrently in ONE batch (oracle reviews design and algorithmic soundness of the diff, auditor reviews security/edge cases/contract compliance, verifier runs build and tests). Reconcile disagreements yourself; a BLOCKER from any member blocks completion. Use the high-volume OpenCode Go worker pool freely for wide @builder and @researcher batches."
+  },
   "agent_models": {
     "hivemind-architect": "openai/gpt-6.1-sol",
-    "scout": "opencode-go/deepseek-v4.1-flash",
-    "surgeon": "opencode-go/glm-5.3-flash",
-    "verifier": "opencode-go/deepseek-v4.1-flash",
+    "scout": "opencode/deepseek-v4.1-flash",
+    "surgeon": "opencode/glm-5.3-flash",
+    "verifier": "opencode/deepseek-v4.1-flash",
     "auditor": "openai/gpt-6.1-sol",
-    "oracle": "openai/gpt-6-astra"
+    "oracle": "openai/gpt-6-astra",
+    "builder": "opencode/glm-5.3-flash",
+    "researcher": "opencode/deepseek-v4.1-flash",
+    "spec-architect": "openai/gpt-6.1-sol"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",
     "model": "openai/gpt-6.1-sol",
-    "small_model": "opencode-go/deepseek-v4.1-flash",
+    "small_model": "opencode/deepseek-v4.1-flash",
     "provider": {
       "deepseek": {
         "npm": "@ai-sdk/openai-compatible",
@@ -52,15 +68,11 @@
         "reasoningEffort": "medium"
       },
       "build": {
-        "model": "opencode-go/glm-5.3-flash"
+        "model": "opencode/glm-5.3-flash"
       },
       "explore": {
-        "model": "opencode-go/deepseek-v4.1-flash"
+        "model": "opencode/deepseek-v4.1-flash"
       }
-    },
-    "plugins": [
-      "opencode-openai-codex-auth",
-      "@ex-machina/opencode-anthropic-auth"
-    ]
+    }
   }
 }

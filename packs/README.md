@@ -9,13 +9,17 @@ human copies into the target app's configuration directory.
 A `/stack` picker plus a set of agent roles, commands, skills, and provider
 profiles for [OpenCode](https://opencode.ai) v2.
 
-- **Agents:** auditor, hivemind-architect, oracle, scout, surgeon, verifier.
-- **Commands:** `/stack`, `/swarm`, `/audit-diff`, and five stack presets
-  (chatgpt-deepseek, claude-hybrid, claude-native, argon-deepseek,
+- **Agents:** auditor, builder, hivemind-architect, oracle, researcher, scout,
+  spec-architect, surgeon, verifier.
+- **Commands:** `/stack`, `/swarm`, `/brainstorm`, `/audit-diff`, and five stack
+  presets (chatgpt-deepseek, claude-hybrid, claude-native, argon-deepseek,
   opencode-go-max).
 - **Skill:** token-discipline.
-- **Profiles:** one JSON per provider stack.
-- **CLI:** `hive-switch <stack>` writes the active profile.
+- **Profiles:** one JSON per provider stack, with its topology, parallel cap,
+  verification gate, and agent step budgets.
+- **CLI:** `hive-switch <stack>` writes the active profile, merges the shared
+  base config, patches agent models/steps, and regenerates the `AGENTS.md`
+  topology block.
 
 Install with `install.ps1` (Windows) or `install.sh` (macOS/Linux/WSL) as
 described in [`hivemind/README.md`](hivemind/README.md). The pack is

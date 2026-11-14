@@ -2,22 +2,26 @@
   install.ps1 — Hivemind Stack Switcher for OpenCode v2 (Windows)
 
   What you get in the composer after installing:
-    /stack                    -> show the active stack
+    /stack                    -> show the active stack + topology
     /stack/chatgpt-deepseek   -> pick a stack from the list (descriptions shown)
     /stack/claude-hybrid
     /stack/claude-native
     /stack/argon-deepseek
     /stack/opencode-go-max
+    /swarm <task>             -> adaptive DAG swarm
+    /brainstorm <dump>        -> compile the dump to .opencode/SPEC.md
 
   Installs:
     %USERPROFILE%\.config\hivemind\profiles\*.json
+    %USERPROFILE%\.config\hivemind\base-opencode.json
+    %USERPROFILE%\.config\hivemind\hive-switch.ps1
     %USERPROFILE%\.config\opencode\AGENTS.md, agents\, commands\, skills\
     %USERPROFILE%\.config\opencode\commands\stack.md + commands\stack\*.md
-    %USERPROFILE%\.local\bin\hive-switch.cmd + hive-switch.ps1
+    %USERPROFILE%\.local\bin\hive-switch.cmd + hive-switch.ps1 (forwarder)
 
   Safe by default:
     - existing profiles and opencode.json are backed up (.bak.<timestamp>)
-    - existing agent prompts, AGENTS.md, swarm/audit-diff are left alone
+    - existing agent prompts, AGENTS.md, /swarm, /brainstorm and /audit-diff are left alone
     - opencode.json is NOT rewritten unless you pass -Activate <profile>
 
   Usage:
@@ -75,6 +79,7 @@ Say "Profiles -> $HmHome\profiles"
 Get-ChildItem (Join-Path $Root 'profiles\*.json') | ForEach-Object {
   Install-File $_.FullName (Join-Path (Join-Path $HmHome 'profiles') $_.Name)
 }
+Install-File (Join-Path $Root 'base-opencode.json') (Join-Path $HmHome 'base-opencode.json')
 
 Say ""
 Say "OpenCode config -> $OcDir"
@@ -92,9 +97,9 @@ Install-File (Join-Path $Root 'opencode\skills\token-discipline\SKILL.md') `
              (Join-Path $OcDir 'skills\token-discipline\SKILL.md') -KeepExisting
 
 Say ""
-Say "Switcher -> $BinDir"
+Say "Switcher -> $HmHome + $BinDir"
+Install-File (Join-Path $Root 'hive-switch.ps1') (Join-Path $HmHome 'hive-switch.ps1')
 Install-File (Join-Path $Root 'bin\hive-switch.ps1') (Join-Path $BinDir 'hive-switch.ps1')
-Install-File (Join-Path $Root 'bin\hive-switch.ps1') (Join-Path $HmHome 'hive-switch.ps1')
 Install-File (Join-Path $Root 'bin\hive-switch.cmd') (Join-Path $BinDir 'hive-switch.cmd')
 
 # --- point the /stack commands at this machine's switcher ---------------

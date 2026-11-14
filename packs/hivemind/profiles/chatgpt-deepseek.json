@@ -1,18 +1,34 @@
 {
   "profile_id": "chatgpt-deepseek",
   "description": "ChatGPT Plus OAuth Orchestrator (GPT-6.1 Sol / GPT-6 Astra) + DeepSeek V4.1 Flash API Workers ($0 extra subscription cost)",
+  "topology": {
+    "name": "High-Concurrency DeepSeek Fan-Out",
+    "max_parallel_subagents": 6,
+    "verification_gate": [
+      "verifier",
+      "auditor"
+    ],
+    "agent_steps": {
+      "builder": 25,
+      "researcher": 25
+    },
+    "directive": "Orchestrator turns are the scarce resource (ChatGPT Plus 5-hour quota). Minimize your own turn count: plan once, then aggressively fan out parallel @researcher and @builder batches on DeepSeek (25 steps each) in a single message, up to MAX_PARALLEL_SUBAGENTS. Prefer one wide batch over several narrow ones; never spend an orchestrator turn on work a DeepSeek worker can do inside its slice. Tier 1 (<= 2 files) still runs directly."
+  },
   "agent_models": {
     "hivemind-architect": "openai/gpt-6.1-sol",
-    "scout": "deepseek/deepseek-flash",
-    "surgeon": "deepseek/deepseek-flash",
-    "verifier": "deepseek/deepseek-flash",
+    "scout": "opencode/deepseek-v4.1-flash",
+    "surgeon": "opencode/deepseek-v4.1-flash",
+    "verifier": "opencode/deepseek-v4.1-flash",
     "auditor": "openai/gpt-6.1-sol",
-    "oracle": "openai/gpt-6-astra"
+    "oracle": "openai/gpt-6-astra",
+    "builder": "opencode/deepseek-v4.1-flash",
+    "researcher": "opencode/deepseek-v4.1-flash",
+    "spec-architect": "openai/gpt-6.1-sol"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",
     "model": "openai/gpt-6.1-sol",
-    "small_model": "deepseek/deepseek-flash",
+    "small_model": "opencode/deepseek-v4.1-flash",
     "provider": {
       "deepseek": {
         "npm": "@ai-sdk/openai-compatible",
@@ -52,15 +68,11 @@
         "reasoningEffort": "medium"
       },
       "build": {
-        "model": "deepseek/deepseek-flash"
+        "model": "opencode/deepseek-v4.1-flash"
       },
       "explore": {
-        "model": "deepseek/deepseek-flash"
+        "model": "opencode/deepseek-v4.1-flash"
       }
-    },
-    "plugins": [
-      "opencode-openai-codex-auth",
-      "@ex-machina/opencode-anthropic-auth"
-    ]
+    }
   }
 }
