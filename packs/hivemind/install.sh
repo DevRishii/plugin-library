@@ -10,18 +10,20 @@
 #   /stack/opencode-go-max
 #   /swarm <task>              -> adaptive DAG swarm
 #   /brainstorm <dump>         -> compile the dump to .opencode/SPEC.md
+#   /pr-review <pr-link>       -> multi-angle PR review swarm (parallel lenses + intent gate)
 #
 # Installs:
 #   ~/.config/hivemind/profiles/*.json
 #   ~/.config/hivemind/base-opencode.json
 #   ~/.config/hivemind/hive-switch
 #   ~/.config/opencode/{AGENTS.md,agents/,commands/,skills/}
+#   ~/.config/opencode/skills/token-discipline/ and skills/pr-review/ (incl. lenses/)
 #   ~/.config/opencode/commands/stack.md + commands/stack/*.md
 #   ~/.local/bin/hive-switch
 #
 # Safe by default:
 #   - existing profiles and opencode.json are backed up (.bak.<timestamp>)
-#   - existing agent prompts, AGENTS.md, /swarm, /brainstorm and /audit-diff are left alone
+#   - existing agent prompts, AGENTS.md, /swarm, /brainstorm, /pr-review and /audit-diff are left alone
 #   - opencode.json is NOT rewritten unless you pass -a <profile>
 #
 # Usage:
@@ -42,7 +44,7 @@ ACTIVATE=""
 while getopts "a:h" opt; do
   case "$opt" in
     a) ACTIVATE="$OPTARG" ;;
-    h) sed -n '2,26p' "$0"; exit 0 ;;
+    h) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown option" >&2; exit 2 ;;
   esac
 done
@@ -75,7 +77,7 @@ else
 fi
 
 mkdir -p "$HM_HOME/profiles" "$OC_DIR/agents" "$OC_DIR/commands/stack" \
-         "$OC_DIR/skills/token-discipline" "$BIN_DIR"
+         "$OC_DIR/skills/token-discipline" "$OC_DIR/skills/pr-review/lenses" "$BIN_DIR"
 
 echo
 echo "Profiles -> $HM_HOME/profiles"
@@ -96,8 +98,14 @@ done
 for f in "$ROOT"/opencode/commands/stack/*.md; do
   install_file "$f" "$OC_DIR/commands/stack/$(basename "$f")" 1
 done
-install_file "$ROOT/opencode/skills/token-discipline/SKILL.md" \
-             "$OC_DIR/skills/token-discipline/SKILL.md" 1
+for skill in token-discipline pr-review; do
+  install_file "$ROOT/opencode/skills/$skill/SKILL.md" "$OC_DIR/skills/$skill/SKILL.md" 1
+done
+if [ -d "$ROOT/opencode/skills/pr-review/lenses" ]; then
+  for f in "$ROOT"/opencode/skills/pr-review/lenses/*.md; do
+    install_file "$f" "$OC_DIR/skills/pr-review/lenses/$(basename "$f")" 1
+  done
+fi
 
 echo
 echo "Switcher -> $BIN_DIR"
@@ -143,5 +151,6 @@ echo "  DONE"
 echo "=================================================================="
 echo "  /stack                  show the active stack"
 echo "  /stack/claude-hybrid    switch stack (pick any from the /stack list)"
+echo "  /pr-review <pr-link>    multi-angle PR review swarm"
 echo "  OpenCode watches the config directory and reloads automatically."
 echo "=================================================================="

@@ -20,9 +20,10 @@ a host.
 | [`fleet-view`](plugins/fleet-view) | 1.0.0 | Live subagent tree with status, duration, tokens, model, and estimated swarm cost | Right-sidebar Fleet tab |
 | [`session-tripwire`](plugins/session-tripwire) | 0.1.0 | Workspace write-intent ledger: leases, fences, warn-or-block on concurrent writes, live board | Tool hook + `/tripwire` + HTML board |
 | [`dsh-doctor`](plugins/dsh-doctor) | 0.1.0 | Deterministic preflight checks for a harness workspace; JSON/`--nightmares` feed, history, explain, dry-run fixes | Standalone CLI |
+| [`pr-review`](plugins/pr-review) | 0.1.0 | Multi-angle PR review swarm with intent alignment, diff-anchor evidence verification, and safe GitHub PR review publication | `/pr-review` + `pr-review` CLI |
 | [`theme-engine`](plugins/theme-engine) | 1.0.0 | Eight preset palettes layered over light/dark through theme token overrides | Settings row |
 | [`restart-app`](plugins/restart-app) | 1.0.0 | Restart the desktop app from the composer so installed plugin changes load | Composer button + `/restart-app` |
-| [`packs/hivemind`](packs/hivemind) | v2.5 | OpenCode `/stack` picker, nine agent roles, adaptive DAG `/swarm`, `/brainstorm`, token-discipline skill, five provider profiles | OpenCode pack (cross-app) |
+| [`packs/hivemind`](packs/hivemind) | v2.5 | OpenCode `/stack` picker, ten agent roles, adaptive DAG `/swarm`, `/brainstorm`, `/pr-review`, token-discipline + pr-review skills, five provider profiles | OpenCode pack (cross-app) |
 
 `experiments/sidebar-vertical-split/` holds the design patch and notes for
 stacking the right sidebar's two panes vertically; it is not an installable
@@ -71,9 +72,10 @@ shared rates module is the obvious first cross-package refactor; see
   adjudication. The playbook lives in
   [`skills/fleet-orchestration/SKILL.md`](plugins/fleet-preset/skills/fleet-orchestration/SKILL.md).
 - **`fleet-view`** visualizes what the swarm is doing and what it costs.
-- **`packs/hivemind`** is the cross-app counterpart: nine agent roles (architect,
+- **`packs/hivemind`** is the cross-app counterpart: ten agent roles (architect,
   builder, researcher, scout, spec-architect, surgeon, verifier, auditor,
-  oracle), an adaptive DAG `/swarm`, `/brainstorm` to spec, a `/stack` provider
+  oracle, pr-reviewer), an adaptive DAG `/swarm`, `/brainstorm` to spec,
+  `/pr-review` multi-angle PR review swarm, a `/stack` provider
   switcher, and five profiles for OpenCode v2, installed with one script.
 
 ## Safety and diagnostics
@@ -125,6 +127,7 @@ The library is deliberately split into pure cores and thin host bindings:
 
 | Package | Portability | Portable core |
 | --- | ---: | --- |
+| `pr-review` | 5/5 | zero-dependency Node >= 22 CLI + Hivemind review swarm |
 | `dsh-doctor` | 4/5 | all checks and fix planning; CLI-first |
 | `packs/hivemind` | 4/5 | agent/command Markdown + stack switcher |
 | `session-diff` | 3/5 | receipt facts, snapshots, renderers, CLI |

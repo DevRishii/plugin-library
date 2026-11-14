@@ -13,6 +13,7 @@ no terminal, no restart.
 /stack/opencode-go-max
 /swarm <task>               → adaptive DAG swarm
 /brainstorm <dump>          → compile the dump to .opencode/SPEC.md
+/pr-review <pr-link>        → multi-angle PR review swarm + intent gate
 ```
 
 Typing `/stack` in the composer lists every stack with its description, so you
@@ -62,9 +63,9 @@ commands). After that, switching never needs a restart.
 | `/stack/argon-deepseek` | Macro-Context Lead + Parallel Builders (5) | Gemini 4 Argon | DeepSeek Flash | Long runs without burning ChatGPT/Claude quota. |
 | `/stack/opencode-go-max` | Full Ensemble Council (6) | GPT-6.1 Sol | GLM-5.3-Flash + DeepSeek Flash | High-volume parallel packet work. |
 
-Each stack also repoints the nine Hivemind agents (`hivemind-architect`,
+Each stack also repoints the ten Hivemind agents (`hivemind-architect`,
 `builder`, `researcher`, `scout`, `spec-architect`, `surgeon`, `verifier`,
-`auditor`, `oracle`) and applies its agent step budgets.
+`auditor`, `oracle`, `pr-reviewer`) and applies its agent step budgets.
 
 ## Commands
 
@@ -72,6 +73,9 @@ Each stack also repoints the nine Hivemind agents (`hivemind-architect`,
   recon -> contract lock -> parallel builders -> verify/audit gate.
 - `/brainstorm <dump>` — `@spec-architect` writes `.opencode/SPEC.md` (contracts,
   ownership matrix, verification), then offers `/swarm`.
+- `/pr-review <pr-link>` — multi-angle PR review swarm across 13 core + 4
+  conditional specialist lenses, intent-vs-code alignment gating, diff-anchor
+  verification, and dry-run/confirmed GitHub review publication.
 - `/audit-diff` — read-only review of the working diff.
 - `/stack` — show the active stack and topology; `/stack/<name>` switches.
 
@@ -114,10 +118,10 @@ OpenCode resolves from the environment at runtime.
 ~/.config/hivemind/hive-switch[.ps1]        switcher implementation
 ~/.config/hivemind/opencode/                mirror of agents, commands, AGENTS.md
 ~/.config/opencode/AGENTS.md                global rules + generated topology block
-~/.config/opencode/agents/*.md              9 Hivemind agents
-~/.config/opencode/commands/                /swarm, /brainstorm, /audit-diff, /stack
+~/.config/opencode/agents/*.md              10 Hivemind agents
+~/.config/opencode/commands/                /swarm, /brainstorm, /pr-review, /audit-diff, /stack
 ~/.config/opencode/commands/stack/*.md      one command per stack
-~/.config/opencode/skills/                  token-discipline skill
+~/.config/opencode/skills/                  token-discipline + pr-review skills
 ~/.local/bin/hive-switch[.cmd|.ps1]         PATH entry point / forwarder
 ```
 

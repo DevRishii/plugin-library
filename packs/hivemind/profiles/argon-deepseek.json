@@ -22,7 +22,8 @@
     "oracle": "openai/gpt-6-astra",
     "builder": "opencode/deepseek-v4.1-flash",
     "researcher": "opencode/deepseek-v4.1-flash",
-    "spec-architect": "google/gemini-4-argon"
+    "spec-architect": "google/gemini-4-argon",
+    "pr-reviewer": "opencode/deepseek-v4.1-flash"
   },
   "opencode_config": {
     "$schema": "https://opencode.ai/config.json",

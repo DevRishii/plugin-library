@@ -10,18 +10,20 @@
     /stack/opencode-go-max
     /swarm <task>             -> adaptive DAG swarm
     /brainstorm <dump>        -> compile the dump to .opencode/SPEC.md
+    /pr-review <pr-link>      -> multi-angle PR review swarm (parallel lenses + intent gate)
 
   Installs:
     %USERPROFILE%\.config\hivemind\profiles\*.json
     %USERPROFILE%\.config\hivemind\base-opencode.json
     %USERPROFILE%\.config\hivemind\hive-switch.ps1
     %USERPROFILE%\.config\opencode\AGENTS.md, agents\, commands\, skills\
+    %USERPROFILE%\.config\opencode\skills\token-discipline\ and skills\pr-review\ (incl. lenses\)
     %USERPROFILE%\.config\opencode\commands\stack.md + commands\stack\*.md
     %USERPROFILE%\.local\bin\hive-switch.cmd + hive-switch.ps1 (forwarder)
 
   Safe by default:
     - existing profiles and opencode.json are backed up (.bak.<timestamp>)
-    - existing agent prompts, AGENTS.md, /swarm, /brainstorm and /audit-diff are left alone
+    - existing agent prompts, AGENTS.md, /swarm, /brainstorm, /pr-review and /audit-diff are left alone
     - opencode.json is NOT rewritten unless you pass -Activate <profile>
 
   Usage:
@@ -70,7 +72,8 @@ if ($oc) { Ok "opencode found: $($oc.Source)" }
 else { Warn "opencode not on PATH. Install OpenCode v2 (Desktop + CLI 2.2.x+) first." }
 
 foreach ($d in @((Join-Path $HmHome 'profiles'), (Join-Path $OcDir 'agents'), (Join-Path $OcDir 'commands'),
-                 (Join-Path $OcDir 'commands\stack'), (Join-Path $OcDir 'skills\token-discipline'), $BinDir)) {
+                 (Join-Path $OcDir 'commands\stack'), (Join-Path $OcDir 'skills\token-discipline'),
+                 (Join-Path $OcDir 'skills\pr-review\lenses'), $BinDir)) {
   New-Item -ItemType Directory -Path $d -Force | Out-Null
 }
 
@@ -93,8 +96,18 @@ Get-ChildItem (Join-Path $Root 'opencode\commands\*.md') | ForEach-Object {
 Get-ChildItem (Join-Path $Root 'opencode\commands\stack\*.md') | ForEach-Object {
   Install-File $_.FullName (Join-Path (Join-Path $OcDir 'commands\stack') $_.Name) -KeepExisting
 }
-Install-File (Join-Path $Root 'opencode\skills\token-discipline\SKILL.md') `
-             (Join-Path $OcDir 'skills\token-discipline\SKILL.md') -KeepExisting
+foreach ($skill in 'token-discipline', 'pr-review') {
+  $srcSkill = Join-Path $Root (Join-Path 'opencode\skills' $skill)
+  $dstSkill = Join-Path $OcDir (Join-Path 'skills' $skill)
+  Install-File (Join-Path $srcSkill 'SKILL.md') (Join-Path $dstSkill 'SKILL.md') -KeepExisting
+  $srcLenses = Join-Path $srcSkill 'lenses'
+  if (Test-Path $srcLenses) {
+    New-Item -ItemType Directory -Path (Join-Path $dstSkill 'lenses') -Force | Out-Null
+    Get-ChildItem (Join-Path $srcLenses '*.md') | ForEach-Object {
+      Install-File $_.FullName (Join-Path (Join-Path $dstSkill 'lenses') $_.Name) -KeepExisting
+    }
+  }
+}
 
 Say ""
 Say "Switcher -> $HmHome + $BinDir"
@@ -144,5 +157,6 @@ Say "  DONE"
 Say "=================================================================="
 Say "  /stack                  show the active stack"
 Say "  /stack/claude-hybrid    switch stack (pick any from the /stack list)"
+Say "  /pr-review <pr-link>    multi-angle PR review swarm"
 Say "  OpenCode watches the config directory and reloads automatically."
 Say "=================================================================="
