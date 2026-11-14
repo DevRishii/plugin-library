@@ -25,7 +25,9 @@
   Safe by default:
     - existing profiles and opencode.json are backed up (.bak.<timestamp>)
     - existing agent prompts, AGENTS.md, /swarm, /brainstorm, /pr-review and /audit-diff are left alone
-    - opencode.json is NOT rewritten unless you pass -Activate <profile>
+    - opencode.json is NOT rewritten unless you pass -Activate <profile>; the
+      focused PR-review reinstall also applies narrow harness registration
+      (architect pr-reviewer allow + reviewer model/default permissions)
 
   Usage:
     powershell -ExecutionPolicy Bypass -File install.ps1
@@ -33,7 +35,8 @@
     powershell -ExecutionPolicy Bypass -File install.ps1 -Force   # overwrite prompt files
     powershell -ExecutionPolicy Bypass -File install.ps1 -ReinstallPRReview
         # refresh ONLY the PR-review command, agent, skill, lenses, and engine;
-        # leaves profiles, AGENTS.md, opencode.json, other commands/agents, and PATH untouched
+        # then apply narrow harness registration; leaves profiles, AGENTS.md,
+        # other commands/agents, and unrelated PATH entries untouched
 #>
 [CmdletBinding()]
 param(
@@ -87,6 +90,80 @@ function Install-PRReviewEngine([switch]$KeepExisting) {
   Install-File (Join-Path $engineSrc 'README.md') (Join-Path $engineDst 'README.md') -KeepExisting:$KeepExisting
 }
 
+function Test-NodeExecutable([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+  try {
+    & $Path --version 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+  } catch {
+    return $false
+  }
+}
+
+function Get-PortableNodePath {
+  return (Join-Path $HomeDir '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe')
+}
+
+function Resolve-NodeCommand {
+  $cmd = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd -and (Test-NodeExecutable $cmd.Source)) { return $cmd.Source }
+  $portable = Get-PortableNodePath
+  if (Test-Path $portable) { return $portable }
+  return ''
+}
+
+# Only install the shim when no working `node` is already on PATH. A good
+# existing Node install is never shadowed, and no runtime is ever downloaded.
+function Ensure-NodeShim {
+  $cmd = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd -and (Test-NodeExecutable $cmd.Source)) {
+    Ok "node available: $($cmd.Source)"
+    return $true
+  }
+  $portable = Get-PortableNodePath
+  if (-not (Test-Path $portable)) {
+    Warn "node not on PATH and portable runtime not found: $portable"
+    return $false
+  }
+  $shimSrc = Join-Path $Root 'bin\node.cmd'
+  if (-not (Test-Path $shimSrc)) {
+    Warn "node.cmd shim source not found: $shimSrc"
+    return $false
+  }
+  $shimDst = Join-Path $BinDir 'node.cmd'
+  Backup-IfExists $shimDst
+  Copy-Item $shimSrc $shimDst -Force
+  Ok "node.cmd shim -> $shimDst (portable runtime)"
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  if ($userPath -notlike "*$BinDir*") {
+    $newPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $BinDir } else { "$userPath;$BinDir" }
+    [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+    Warn "$BinDir added to User PATH so the node.cmd shim resolves (new terminals)"
+  }
+  return $true
+}
+
+function Invoke-HarnessRegistration {
+  $node = Resolve-NodeCommand
+  if (-not $node) {
+    Warn "node not found; harness registration skipped (no downloads)."
+    return
+  }
+  $helper = Join-Path $OcDir 'skills\pr-review\engine\src\harness-registration.mjs'
+  if (-not (Test-Path $helper)) {
+    Warn "harness-registration helper not installed: $helper"
+    return
+  }
+  try {
+    & $node $helper --config-dir $OcDir
+    if ($LASTEXITCODE -ne 0) {
+      Warn "harness registration exited with code $LASTEXITCODE"
+    }
+  } catch {
+    Warn "harness registration failed: $($_.Exception.Message)"
+  }
+}
+
 function Install-PRReviewAssets([switch]$Overwrite) {
   $keep = -not $Overwrite
   Install-File (Join-Path $Root 'opencode\commands\pr-review.md') (Join-Path $OcDir 'commands\pr-review.md') -KeepExisting:$keep
@@ -122,7 +199,11 @@ if ($ReinstallPRReview) {
   Say "Focused reinstall -> PR-review assets only"
   Install-PRReviewAssets -Overwrite
   Say ""
-  Say "Done. Profiles, AGENTS.md, opencode.json, other commands/agents, and PATH were not touched."
+  Say "Node + harness registration"
+  Ensure-NodeShim | Out-Null
+  Invoke-HarnessRegistration
+  Say ""
+  Say "Done. Profiles, AGENTS.md, other commands/agents, and unrelated PATH entries were not touched."
   Say "OpenCode watches the config directory; use /reload if refreshed PR-review assets are not visible."
   exit 0
 }
@@ -159,6 +240,11 @@ foreach ($skill in 'token-discipline', 'pr-review') {
   }
 }
 Install-PRReviewEngine -KeepExisting
+
+Say ""
+Say "Harness registration"
+Ensure-NodeShim | Out-Null
+Invoke-HarnessRegistration
 
 Say ""
 Say "Switcher -> $HmHome + $BinDir"

@@ -2,12 +2,11 @@
 description: Read-only specialist PR review worker for /pr-review waves. Evaluates a single assigned review lens against quarantined PR context and diff hunks, returning schema-valid SubagentReviewReport JSON.
 mode: subagent
 model: opencode/deepseek-v4.1-flash
-temperature: 0.1
 steps: 12
-permission:
-  edit: deny
-  bash: deny
-  task: deny
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
 ---
 
 You are **PR Reviewer**, a read-only specialist inside the `/pr-review` swarm.

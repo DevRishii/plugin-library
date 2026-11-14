@@ -17,7 +17,7 @@ synthesis, rendering, and publication.
 | --- | --- | --- |
 | Contracts | `src/contracts.mjs` | Exit codes, error codes, lens registry, PR reference parser, quarantine helpers, schema validators |
 | Ingest | `src/ingest.mjs` | Fetch PR metadata and diff, build `PRContextPacket` |
-| Slicer | `src/slicer.mjs` | Bounded per-lens diff slices and prompt assembly |
+| Slicer | `src/slicer.mjs` | Bounded per-lens diff slices (line, byte, and per-hunk caps) |
 | Synthesize | `src/synthesize.mjs` | Evidence checks, corroborative dedupe, `OrchestratedPRReviewPayload` |
 | Publish | `src/publish.mjs` | Dry-run render, GitHub review API, duplicate/stale guards |
 | CLI | `bin/pr-review.mjs` | `pr-review <command>` entry point |
@@ -40,16 +40,50 @@ one stage into the next. Human-readable logs go to stderr.
 | --- | --- |
 | `ingest <pr-ref>` | Parse and validate the PR reference, fetch metadata and diff, quarantine untrusted text, select lenses and waves, write `PRContextPacket` |
 | `lenses` | List the 13 core and 4 conditional lenses; `--files` reports selection reasons and trigger matches |
-| `slice` | Emit a bounded diff slice for one lens, capped by `MAX_SLICE_LINES` and the per-field byte budget |
-| `prompt` | Render the fenced `@pr-reviewer` prompt for one lens from `PRContextPacket`, with evidence requirements and output schema |
+| `slice` | Emit a bounded diff slice for one lens, capped by `MAX_SLICE_LINES`, `MAX_SLICE_BYTES` (12,000 serialized bytes), and `MAX_HUNK_LINES` (60 lines per hunk); `--max-lines` lowers the line cap |
+| `prompt` | Render the fenced `@pr-reviewer` prompt for one lens from `PRContextPacket`: evidence requirements, complete JSON output schema, and a diff slice bounded to `MAX_PROMPT_BYTES` (24,000 UTF-8 bytes) / `MAX_PROMPT_LINES` (500) |
 | `validate-report` | Schema-validate a `SubagentReviewReport`, then verify every finding quote and line anchor against the real hunk |
 | `synthesize` | Merge reports, deduplicate corroborated findings, enforce the intent gate, and emit `OrchestratedPRReviewPayload` |
 | `render` | Render the payload as Markdown (default) or JSON for dry-run inspection |
 | `publish` | Publish the review; dry run by default, `--post --confirm` to write to GitHub |
 | `selftest` | Run the built-in contract self-check (lens count, parser, quarantine, wave cap) |
 
-Common flags: `--out <path>`, `--json`, `--max-parallel <n>`, `--budget <bytes>`,
-`--head-sha <sha>`, `--dry-run`, `--post`, `--confirm`.
+Common flags: `--out <path>`, `--json`, `--max-parallel <n>`, `--max-lines <n>`,
+`--packet <path>`, `--pr-file <path>`, `--from-fixture <dir>`, `--dry-run`,
+`--post`, `--confirm`.
+
+There is no `--budget` flag. Prompt and slice budgets are fixed in
+`src/contracts.mjs`; `--max-lines` only lowers the slice line cap when a slice is
+rebuilt. Prompting from a stored `slices/<lens-id>.json` still re-bounds the
+rendered prompt to the fixed prompt budget, so old or oversized slices cannot
+overflow a worker prompt.
+
+## Prompt and slice budgets
+
+Budgets are locked in `src/contracts.mjs` and are not caller-tunable:
+
+| Budget | Value | Scope |
+| --- | ---: | --- |
+| `MAX_SLICE_LINES` | 450 | Total retained diff lines in a slice |
+| `MAX_SLICE_BYTES` | 12,000 | Serialized selected hunks |
+| `MAX_HUNK_LINES` | 60 | Lines retained from any single hunk |
+| `MAX_PROMPT_BYTES` | 24,000 | Final raw prompt, UTF-8 bytes |
+| `MAX_PROMPT_LINES` | 500 | Final raw prompt lines |
+
+`prompt` is deterministic: the same packet/slice and lens always produce
+byte-identical output. The trusted rubric, quarantine law, coordinate law, and
+the complete JSON output schema (including the intent-alignment body) are always
+retained; only passive PR data is shrunk. Omitted diff content is disclosed with
+explicit omission notes and retained lines keep their original explicit
+coordinates. Quarantine fences stay balanced.
+
+Prompt clipping is **limited diff coverage**, never evidence of a clean
+full-diff review. The orchestrator still passes the whole bounded prompt inline
+to the worker and reports the limited coverage. A genuinely broken tool
+truncation (a prompt clipped mid-schema, missing the output contract, with
+unbalanced fences, or above the budgets) must never be forwarded. If the trusted
+scaffolding alone cannot fit, `prompt` fails with exit `2` (`budget_exceeded`)
+instead of emitting a partial prompt.
 
 ## Exit codes
 
@@ -150,7 +184,8 @@ whenever the intent verdict is not `ALIGNED`.
 - **Path safety.** Diff paths are normalized to repository-relative POSIX form
   and traversal segments are rejected.
 - **Bounded work.** `MAX_DIFF_BYTES`, `MAX_TEXT_FIELD_BYTES`,
-  `MAX_SLICE_LINES`, and `MAX_FINDINGS_PER_LENS` cap every model-facing input.
+  `MAX_SLICE_LINES`, `MAX_SLICE_BYTES`, `MAX_HUNK_LINES`, `MAX_PROMPT_BYTES`,
+  `MAX_PROMPT_LINES`, and `MAX_FINDINGS_PER_LENS` cap every model-facing input.
 
 ## Publication
 

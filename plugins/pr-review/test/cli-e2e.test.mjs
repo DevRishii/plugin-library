@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { EXIT_CODES, REVIEW_MARKER, SCHEMA_VERSION, normalizeRepoRelPath, validateReviewFinding } from '../src/contracts.mjs'
+import { EXIT_CODES, BUDGETS, REVIEW_MARKER, SCHEMA_VERSION, normalizeRepoRelPath, validateReviewFinding } from '../src/contracts.mjs'
 import { evaluateIntentAlignment } from '../src/intent.mjs'
 import { publishRepoPullRequest } from '../src/git-api-pr.mjs'
 import { runCli } from '../src/cli.mjs'
@@ -398,7 +398,8 @@ test('Hivemind pack wiring is consistent across commands, agents, skills, switch
   const switchSh = readFileSync(join(packRoot, 'bin', 'hive-switch'), 'utf8')
 
   assert.match(cmdText, /^---\r?\n[\s\S]*agent:\s*hivemind-architect[\s\S]*---/)
-  assert.match(agentText, /^---\r?\n[\s\S]*mode:\s*subagent[\s\S]*edit:\s*deny[\s\S]*bash:\s*deny[\s\S]*task:\s*deny[\s\S]*---/)
+  assert.match(agentText, /^---\r?\n[\s\S]*mode:\s*subagent[\s\S]*permissions:[\s\S]*action:\s*["']?\*["']?[\s\S]*resource:\s*["']?\*["']?[\s\S]*effect:\s*deny[\s\S]*---/)
+  assert.doesNotMatch(agentText.split(/^---\r?$/m)[1], /^permission:|^temperature:/m)
   assert.match(skillText, /^---\r?\n[\s\S]*name:\s*pr-review[\s\S]*---/)
   assert.ok(switchPs1.includes('"pr-reviewer"'))
   assert.ok(switchSh.includes('"pr-reviewer"'))
@@ -504,5 +505,169 @@ test('Security regression guards: monotonic intent pessimism, finding path canon
     )
   } finally {
     rmSync(tmpRepo, { recursive: true, force: true })
+  }
+})
+
+function promptLineCount(prompt) {
+  const lines = String(prompt).split('\n')
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  return lines.length
+}
+
+function assertCompleteBoundedPrompt(prompt, { lensId, headSha }) {
+  const bytes = Buffer.byteLength(prompt, 'utf8')
+  assert.ok(
+    bytes <= BUDGETS.MAX_PROMPT_BYTES,
+    `${lensId} prompt is ${bytes} UTF-8 bytes, over MAX_PROMPT_BYTES (${BUDGETS.MAX_PROMPT_BYTES})`
+  )
+  const lines = promptLineCount(prompt)
+  assert.ok(
+    lines <= BUDGETS.MAX_PROMPT_LINES,
+    `${lensId} prompt is ${lines} lines, over MAX_PROMPT_LINES (${BUDGETS.MAX_PROMPT_LINES})`
+  )
+
+  // The trusted scaffolding and JSON output contract must survive intact; a
+  // tool that substrings a finished prompt would cut these off.
+  assert.match(prompt, /^# PR Review Worker/)
+  assert.ok(prompt.includes(`"lens_id": "${lensId}"`), `missing lens_id in ${lensId} prompt`)
+  assert.ok(prompt.includes(`"head_sha": "${headSha}"`), `missing head_sha in ${lensId} prompt`)
+  assert.ok(prompt.includes('Return ONLY one JSON object'), `missing output contract in ${lensId} prompt`)
+  assert.ok(prompt.includes('"schema_version": 1'), `missing schema_version in ${lensId} prompt`)
+  assert.ok(prompt.includes('"findings": ['), `missing findings schema in ${lensId} prompt`)
+  for (const field of [
+    'severity', 'confidence', 'path', 'line_start', 'line_end', 'side',
+    'title', 'body', 'suggestion', 'evidence_quote'
+  ]) {
+    assert.ok(prompt.includes(`"${field}"`), `missing finding schema field "${field}" in ${lensId} prompt`)
+  }
+  assert.match(prompt, /- At most \d+ findings\./, `missing findings rule tail in ${lensId} prompt`)
+  assert.match(
+    prompt,
+    /\[(?:NEW:\d+|OLD:\d+|OLD:\d+ NEW:\d+)\]/,
+    `retained diff lines must keep explicit coordinates in ${lensId} prompt`
+  )
+
+  // Fences must stay balanced even when passive data is clipped.
+  const opens = (prompt.match(/<untrusted_pr_data\b/g) ?? []).length
+  const closes = (prompt.match(/<\/untrusted_pr_data>/g) ?? []).length
+  assert.ok(opens > 0, `${lensId} prompt has no quarantine fences`)
+  assert.equal(opens, closes, `${lensId} prompt has unbalanced quarantine fences`)
+}
+
+function inflateStoredSlice(slicePath) {
+  const slice = JSON.parse(readFileSync(slicePath, 'utf8'))
+  for (let hunkIndex = 0; hunkIndex < 120; hunkIndex += 1) {
+    const start = 1000 + hunkIndex * 100
+    const lines = []
+    for (let lineIndex = 0; lineIndex < 90; lineIndex += 1) {
+      lines.push({
+        type: 'context',
+        old_line: start + lineIndex,
+        new_line: start + lineIndex,
+        content: `generated context ${hunkIndex}-${lineIndex} ${'x'.repeat(120)}`
+      })
+    }
+    slice.hunks.push({
+      id: `synthetic-${hunkIndex}`,
+      path: 'src/cache-store.mjs',
+      file_path: 'src/cache-store.mjs',
+      header: `@@ -${start},90 +${start},90 @@`,
+      old_start: start,
+      old_lines: 90,
+      new_start: start,
+      new_lines: 90,
+      raw_patch: '',
+      lines
+    })
+  }
+  // Stale/unbounded stored slices may even claim they are complete; the prompt
+  // renderer must still re-bound and disclose the real coverage.
+  slice.truncated = false
+  const serialized = JSON.stringify(slice, null, 2)
+  assert.ok(
+    Buffer.byteLength(serialized, 'utf8') > BUDGETS.MAX_SLICE_BYTES * 10,
+    'inflated stored slice must clearly exceed MAX_SLICE_BYTES'
+  )
+  writeFileSync(slicePath, serialized, 'utf8')
+}
+
+test('CLI prompt re-bounds a legacy oversized stored slice deterministically and keeps the complete contract', async () => {
+  const workTmp = mkdtempSync(join(tmpdir(), 'hivemind-pr-review-budget-'))
+  try {
+    const runDir = join(workTmp, 'run')
+    const prRefFile = join(workTmp, 'pr-ref.txt')
+    writeFileSync(prRefFile, 'https://github.com/acme/plugin-library/pull/42\n', 'utf8')
+
+    const ingestRes = await invokeCli([
+      'ingest',
+      '--pr-file', prRefFile,
+      '--from-fixture', SAMPLE_FIXTURE,
+      '--run-dir', runDir,
+      '--json'
+    ])
+    assert.equal(ingestRes.code, EXIT_CODES.OK)
+    const packet = JSON.parse(readFileSync(join(runDir, 'packet.json'), 'utf8'))
+
+    for (const lensId of ['security', 'intent-alignment']) {
+      inflateStoredSlice(join(runDir, 'slices', `${lensId}.json`))
+
+      const first = await invokeCli(['prompt', '--run-dir', runDir, '--lens', lensId])
+      assert.equal(first.code, EXIT_CODES.OK)
+      const second = await invokeCli(['prompt', '--run-dir', runDir, '--lens', lensId])
+      assert.equal(second.code, EXIT_CODES.OK)
+      assert.equal(second.stdout, first.stdout, `${lensId} prompt must be byte-for-byte deterministic`)
+
+      assertCompleteBoundedPrompt(first.stdout, { lensId, headSha: packet.pr_meta.head_sha })
+      assert.match(
+        first.stdout,
+        /truncat\w*:\s*yes|limited (?:diff )?coverage|coverage[^\n]*limited|omitted[^\n]*(?:diff|hunk|line)/i,
+        `${lensId} clipped prompt must disclose limited diff coverage`
+      )
+
+      if (lensId === 'intent-alignment') {
+        assert.ok(first.stdout.includes('"intent_alignment"'), 'intent prompt must include intent_alignment body')
+        for (const field of [
+          'verdict', 'has_problem_statement', 'has_solution', 'claim_mappings',
+          'scope_creep_files', 'unfulfilled_claims', 'summary'
+        ]) {
+          assert.ok(first.stdout.includes(`"${field}"`), `intent prompt missing intent field "${field}"`)
+        }
+      }
+    }
+  } finally {
+    rmSync(workTmp, { recursive: true, force: true })
+  }
+})
+
+test('CLI prompt has no --budget flag and --max-lines is the real slice line override', async () => {
+  const workTmp = mkdtempSync(join(tmpdir(), 'hivemind-pr-review-flags-'))
+  try {
+    const runDir = join(workTmp, 'run')
+    const prRefFile = join(workTmp, 'pr-ref.txt')
+    writeFileSync(prRefFile, 'https://github.com/acme/plugin-library/pull/42\n', 'utf8')
+
+    const ingestRes = await invokeCli([
+      'ingest',
+      '--pr-file', prRefFile,
+      '--from-fixture', SAMPLE_FIXTURE,
+      '--run-dir', runDir,
+      '--json'
+    ])
+    assert.equal(ingestRes.code, EXIT_CODES.OK)
+
+    const budgetRes = await invokeCli([
+      'prompt', '--run-dir', runDir, '--lens', 'security', '--budget', '1000'
+    ])
+    assert.equal(budgetRes.code, EXIT_CODES.VALIDATION)
+    assert.equal(budgetRes.errJson.error.code, 'invalid_input')
+    assert.match(budgetRes.errJson.error.message, /Unknown option: --budget/)
+
+    const sliceRes = await invokeCli([
+      'slice', '--run-dir', runDir, '--lens', 'security', '--max-lines', '400', '--json'
+    ])
+    assert.equal(sliceRes.code, EXIT_CODES.OK)
+    assert.ok(sliceRes.json.data.line_count <= 400)
+  } finally {
+    rmSync(workTmp, { recursive: true, force: true })
   }
 })

@@ -352,15 +352,254 @@ function interleaveByFile(rankedEntries) {
 function normalizeMaxLines(rawValue) {
   const value = Number(rawValue ?? BUDGETS.MAX_SLICE_LINES)
   if (!Number.isFinite(value) || value < 1) return BUDGETS.MAX_SLICE_LINES
-  return Math.floor(value)
+  // MAX_SLICE_LINES remains the hard upper bound even when a caller asks for
+  // a larger budget.
+  return Math.min(BUDGETS.MAX_SLICE_LINES, Math.floor(value))
+}
+
+function splitIntoPieces(lineEntries, maxHunkLines) {
+  const pieces = []
+  for (let index = 0; index < lineEntries.length; index += maxHunkLines) {
+    pieces.push(lineEntries.slice(index, index + maxHunkLines))
+  }
+  return pieces
+}
+
+/**
+ * Expand a source hunk into per-line records that keep the exact OLD/NEW
+ * coordinates of every original line. String-only diff fallbacks get explicit
+ * coordinates here so downstream renderers never have to infer them after a
+ * split.
+ */
+function expandHunkLines(hunk) {
+  const fallbackOldStart = readInteger(hunk?.old_start ?? hunk?.oldStart) ?? 1
+  const fallbackNewStart = readInteger(hunk?.new_start ?? hunk?.newStart) ?? 1
+  let oldCursor = fallbackOldStart
+  let newCursor = fallbackNewStart
+  const entries = []
+  const rawLines = Array.isArray(hunk?.lines) ? hunk.lines : []
+
+  for (const raw of rawLines) {
+    const kind = readLineType(raw)
+    let oldLine = lineOldCoordinate(raw)
+    let newLine = lineNewCoordinate(raw)
+    let oldPos
+    let newPos
+
+    if (kind === 'add') {
+      oldLine = null
+      oldPos = oldCursor
+      if (newLine == null) newLine = newCursor
+      newPos = newLine
+      newCursor = newLine + 1
+    } else if (kind === 'del') {
+      newLine = null
+      newPos = newCursor
+      if (oldLine == null) oldLine = oldCursor
+      oldPos = oldLine
+      oldCursor = oldLine + 1
+    } else if (kind === 'meta') {
+      oldLine = null
+      newLine = null
+      oldPos = null
+      newPos = null
+    } else {
+      if (oldLine == null) oldLine = oldCursor
+      if (newLine == null) newLine = newCursor
+      oldPos = oldLine
+      newPos = newLine
+      oldCursor = oldLine + 1
+      newCursor = newLine + 1
+    }
+
+    entries.push({
+      kind,
+      oldLine,
+      newLine,
+      oldPos,
+      newPos,
+      out: toOutputLine(raw, kind, oldLine, newLine)
+    })
+  }
+
+  return { entries, fallbackOldStart, fallbackNewStart }
+}
+
+function toOutputLine(raw, kind, oldLine, newLine) {
+  if (typeof raw === 'string') {
+    const out = { type: kind, content: readLineContent(raw) }
+    if (oldLine != null) out.old_line = oldLine
+    if (newLine != null) out.new_line = newLine
+    return out
+  }
+  if (!raw || typeof raw !== 'object') {
+    const out = { type: kind, content: readLineContent(raw) }
+    if (oldLine != null) out.old_line = oldLine
+    if (newLine != null) out.new_line = newLine
+    return out
+  }
+
+  // Keep the original line object whenever it already carries its explicit
+  // coordinates. Only fill in the missing side so source objects are not
+  // rewritten or renumbered.
+  const hasOld = lineOldCoordinate(raw) != null
+  const hasNew = lineNewCoordinate(raw) != null
+  const needsOld = oldLine != null && !hasOld
+  const needsNew = newLine != null && !hasNew
+  if (kind === 'meta' || (!needsOld && !needsNew)) return raw
+  return {
+    ...raw,
+    ...(needsOld ? { old_line: oldLine } : {}),
+    ...(needsNew ? { new_line: newLine } : {})
+  }
+}
+
+function boundedHunkHeader(oldStart, oldLines, newStart, newLines) {
+  const header = `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`
+  return header.length > 160 ? `${header.slice(0, 157)}...` : header
+}
+
+const REGENERATED_HUNK_KEYS = new Set([
+  'lines',
+  'header',
+  'old_start', 'oldStart', 'old_lines', 'oldLines',
+  'new_start', 'newStart', 'new_lines', 'newLines'
+])
+const MAX_HUNK_METADATA_VALUE_BYTES = 512
+
+/**
+ * Preserve small original hunk identity metadata (id, path, ...) while
+ * dropping the unbounded raw patch text and any oversized field that would
+ * crowd the fixed slice byte budget. The regenerated coordinate fields and
+ * lines always come from the split, never from the source.
+ */
+function copyHunkMetadata(sourceHunk) {
+  const base = {}
+  if (!sourceHunk || typeof sourceHunk !== 'object') return base
+  for (const [key, value] of Object.entries(sourceHunk)) {
+    if (REGENERATED_HUNK_KEYS.has(key) || key === 'raw_patch') continue
+    let serialized
+    try {
+      serialized = JSON.stringify(value)
+    } catch {
+      continue
+    }
+    if (typeof serialized !== 'string' || Buffer.byteLength(serialized, 'utf8') > MAX_HUNK_METADATA_VALUE_BYTES) {
+      continue
+    }
+    base[key] = value
+  }
+  return base
+}
+
+function buildOutputHunk(piece, pieceEntries) {
+  const first = pieceEntries[0]
+  const oldStart = first?.oldPos ?? piece.fallbackOldStart
+  const newStart = first?.newPos ?? piece.fallbackNewStart
+  let oldLines = 0
+  let newLines = 0
+  for (const entry of pieceEntries) {
+    if (entry.oldLine != null) oldLines += 1
+    if (entry.newLine != null) newLines += 1
+  }
+  return {
+    ...copyHunkMetadata(piece.sourceHunk),
+    file_path: piece.filePath,
+    old_start: oldStart,
+    old_lines: oldLines,
+    new_start: newStart,
+    new_lines: newLines,
+    header: boundedHunkHeader(oldStart, oldLines, newStart, newLines),
+    lines: pieceEntries.map((entry) => entry.out)
+  }
+}
+
+function serializedBytes(value) {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8')
+}
+
+function fitsSliceBudget(selected, candidate) {
+  return serializedBytes(selected.concat([candidate])) <= BUDGETS.MAX_SLICE_BYTES
+}
+
+/**
+ * Pack ordered source-line pieces into at most `maxLines` retained lines and
+ * `BUDGETS.MAX_SLICE_BYTES` serialized bytes. Hunks longer than MAX_HUNK_LINES
+ * are split before packing; a single line that cannot fit is omitted whole
+ * (never truncated into misleading "complete" evidence).
+ */
+function packPieces(pieces, maxLines) {
+  const selected = []
+  let usedLines = 0
+  let stopped = false
+
+  for (const piece of pieces) {
+    if (stopped) break
+    if (piece.entries.length === 0) continue
+
+    let buffer = []
+    const flush = () => {
+      if (buffer.length === 0) return
+      selected.push(buildOutputHunk(piece, buffer))
+      buffer = []
+    }
+
+    for (const lineEntry of piece.entries) {
+      if (usedLines >= maxLines) {
+        stopped = true
+        break
+      }
+      if (buffer.length >= BUDGETS.MAX_HUNK_LINES) flush()
+
+      let placed = false
+      if (buffer.length < BUDGETS.MAX_HUNK_LINES) {
+        const candidate = buildOutputHunk(
+          piece,
+          [...buffer, lineEntry]
+        )
+        if (fitsSliceBudget(selected, candidate)) {
+          buffer.push(lineEntry)
+          usedLines += 1
+          placed = true
+        }
+      }
+
+      if (placed) continue
+
+      flush()
+      if (usedLines >= maxLines) {
+        stopped = true
+        break
+      }
+      const fresh = buildOutputHunk(
+        piece,
+        [lineEntry]
+      )
+      if (fitsSliceBudget(selected, fresh)) {
+        buffer = [lineEntry]
+        usedLines += 1
+      } else if (serializedBytes(selected) + 2 >= BUDGETS.MAX_SLICE_BYTES) {
+        // No further hunk can possibly fit; stop scanning the remaining diff.
+        stopped = true
+        break
+      }
+      // Otherwise this line is pathological (or currently oversized); omit the
+      // whole line and keep trying later lines that may still fit.
+    }
+
+    flush()
+  }
+
+  return { selected, usedLines, stopped }
 }
 
 /**
  * Build a single lens slice from a validated PR context packet.
  *
- * The result always includes at least one hunk when the packet has hunks,
- * even if that hunk alone exceeds `maxLines`; the budget is a cap on what is
- * packed, not a reason to send an empty prompt.
+ * Selected hunks are split into chunks of at most MAX_HUNK_LINES source lines
+ * and packed into MAX_SLICE_LINES / MAX_SLICE_BYTES. Truncation is reported
+ * honestly whenever any source line is omitted, even if only one hunk was
+ * partially selected.
  *
  * @param {object} packet Validated `PRContextPacket`.
  * @param {string} lensId One of the 17 registered lens ids.
@@ -391,38 +630,54 @@ export function buildLensSlice(packet, lensId, options = {}) {
         filePath,
         changedPaths
       )
+      const expanded = expandHunkLines(hunk)
       return {
         hunk,
         index,
         filePath,
         fileEntry,
-        score: scoreHunkForLens(hunk, fileEntry, lens)
+        score: scoreHunkForLens(hunk, fileEntry, lens),
+        lineEntries: expanded.entries,
+        fallbackOldStart: expanded.fallbackOldStart,
+        fallbackNewStart: expanded.fallbackNewStart
       }
     })
     .sort((a, b) => b.score - a.score || a.index - b.index)
 
-  // Intent alignment is a breadth lens: take the best hunk of every file in
-  // turn before spending budget on a second hunk of any one file.
-  const ordered = lens.id === 'intent-alignment' ? interleaveByFile(ranked) : ranked
+  const totalSourceLines = ranked.reduce((sum, entry) => sum + entry.lineEntries.length, 0)
+  const metadataOnlyHunks = ranked.filter(
+    (entry) => entry.lineEntries.length === 0 && hunkLineCount(entry.hunk) > 0
+  ).length
 
-  const selected = []
-  let usedLines = 0
-  for (const entry of ordered) {
-    const cost = hunkLineCount(entry.hunk)
-    if (selected.length === 0) {
-      selected.push(entry)
-      usedLines += cost
-      continue
+  // Flatten each ranked hunk into bounded pieces. Intent alignment uses a fair
+  // per-file piece size and interleaves pieces by file, so a giant first hunk
+  // cannot crowd every other file out of the breadth-oriented slice.
+  const isIntentLens = lens.id === 'intent-alignment'
+  const intentFileCount = new Set(ranked.map((entry) => entry.filePath || '<unknown>')).size
+  const pieceSize = isIntentLens
+    ? Math.max(1, Math.min(BUDGETS.MAX_HUNK_LINES, Math.ceil(maxLines / Math.max(1, intentFileCount))))
+    : BUDGETS.MAX_HUNK_LINES
+
+  let pieces = []
+  for (const entry of ranked) {
+    for (const entries of splitIntoPieces(entry.lineEntries, pieceSize)) {
+      pieces.push({
+        sourceHunk: entry.hunk,
+        filePath: entry.filePath,
+        entries,
+        fallbackOldStart: entry.fallbackOldStart,
+        fallbackNewStart: entry.fallbackNewStart
+      })
     }
-    if (usedLines + cost > maxLines) continue
-    selected.push(entry)
-    usedLines += cost
   }
+  if (isIntentLens) pieces = interleaveByFile(pieces)
 
-  const selectedHunks = selected.map((entry) => entry.hunk)
+  const { selected: selectedHunks, usedLines } = packPieces(pieces, maxLines)
+
   const includedFiles = []
-  for (const entry of selected) {
-    if (entry.filePath && !includedFiles.includes(entry.filePath)) includedFiles.push(entry.filePath)
+  for (const hunk of selectedHunks) {
+    const filePath = normalizePath(readPath(hunk))
+    if (filePath && !includedFiles.includes(filePath)) includedFiles.push(filePath)
   }
   const includedSet = new Set(includedFiles)
   const omittedFiles = files
@@ -448,7 +703,8 @@ export function buildLensSlice(packet, lensId, options = {}) {
     hunks: selectedHunks,
     line_count: usedLines,
     estimated_tokens: estimateTokens(JSON.stringify(selectedHunks)),
-    truncated: selectedHunks.length < packet.hunks.length
+    truncated: usedLines < totalSourceLines || metadataOnlyHunks > 0,
+    omitted_lines: Math.max(0, totalSourceLines - usedLines)
   }
 }
 

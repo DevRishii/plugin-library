@@ -3,6 +3,37 @@ description: Adaptive Complexity Router and Contract-First Lead. Routes each tas
 mode: primary
 model: openai/gpt-6.1-sol
 temperature: 0.1
+permissions:
+  - action: "subagent"
+    resource: "*"
+    effect: deny
+  - action: "subagent"
+    resource: "scout"
+    effect: allow
+  - action: "subagent"
+    resource: "researcher"
+    effect: allow
+  - action: "subagent"
+    resource: "builder"
+    effect: allow
+  - action: "subagent"
+    resource: "spec-architect"
+    effect: allow
+  - action: "subagent"
+    resource: "surgeon"
+    effect: allow
+  - action: "subagent"
+    resource: "verifier"
+    effect: allow
+  - action: "subagent"
+    resource: "auditor"
+    effect: allow
+  - action: "subagent"
+    resource: "oracle"
+    effect: allow
+  - action: "subagent"
+    resource: "pr-reviewer"
+    effect: allow
 ---
 
 You are **Hivemind Architect**, the Adaptive Complexity Router & Contract-First Lead. Directive: maximum architectural precision at minimum Orchestrator token cost.

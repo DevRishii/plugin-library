@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   SCHEMA_VERSION,
   ERROR_CODES,
+  BUDGETS,
   LENS_REGISTRY,
   LENS_BY_ID,
   ContractError,
@@ -104,6 +105,10 @@ function repeated(prefix, count) {
   return Array.from({ length: count }, (_, index) => `${prefix}line ${index + 1}`)
 }
 
+function serializedSliceBytes(slice) {
+  return Buffer.byteLength(JSON.stringify(slice.hunks), 'utf8')
+}
+
 test('scoreHunkForLens rewards security signal and is deterministic', () => {
   const authHunk = makeHunk('src/auth/token.mjs', ['+const token = await fetchAuthToken(input)'])
   const docsHunk = makeHunk('docs/README.md', ['+Documentation only, no runtime behavior.'])
@@ -123,14 +128,14 @@ test('buildLensSlice caps lines, marks truncation, and omits untouched files', (
   ]
   const packet = makePacket({ files, hunks })
 
-  const slice = buildLensSlice(packet, 'security', { maxLines: 12 })
+  const slice = buildLensSlice(packet, 'security', { maxLines: 10 })
 
   assert.equal(slice.schema_version, SCHEMA_VERSION)
   assert.equal(slice.lens.id, 'security')
   assert.equal(slice.head_sha, HEAD_SHA)
   assert.equal(slice.hunks.length, 1)
   assert.equal(slice.line_count, 10)
-  assert.ok(slice.line_count <= 12)
+  assert.ok(slice.line_count <= 10)
   assert.equal(slice.truncated, true)
   assert.deepEqual(slice.included_files, ['src/auth/token.mjs'])
   assert.deepEqual(slice.omitted_files, ['docs/README.md'])
@@ -140,7 +145,7 @@ test('buildLensSlice caps lines, marks truncation, and omits untouched files', (
   assert.ok(slice.estimated_tokens > 0)
 })
 
-test('buildLensSlice always includes at least one hunk even under a tiny cap', () => {
+test('buildLensSlice clamps a hunk to a tiny line cap instead of including it whole', () => {
   const packet = makePacket({
     files: [makeFile('src/auth/token.mjs')],
     hunks: [makeHunk('src/auth/token.mjs', repeated('+', 20))]
@@ -149,7 +154,150 @@ test('buildLensSlice always includes at least one hunk even under a tiny cap', (
   const slice = buildLensSlice(packet, 'security', { maxLines: 1 })
 
   assert.equal(slice.hunks.length, 1)
+  assert.equal(slice.hunks[0].lines.length, 1)
+  assert.equal(slice.line_count, 1)
+  assert.equal(slice.truncated, true)
+  assert.equal(slice.omitted_lines, 19)
+})
+
+test('a single giant hunk is split into bounded hunks and clamped to the line budget', () => {
+  const packet = makePacket({
+    files: [makeFile('src/auth/token.mjs')],
+    hunks: [makeHunk('src/auth/token.mjs', repeated('+', 200))]
+  })
+
+  const slice = buildLensSlice(packet, 'security', { maxLines: 100 })
+
+  assert.ok(slice.hunks.length >= 2)
+  for (const hunk of slice.hunks) {
+    assert.ok(hunk.lines.length <= BUDGETS.MAX_HUNK_LINES)
+    assert.ok(hunk.lines.length > 0)
+  }
+  assert.equal(slice.line_count, 100)
+  assert.ok(slice.line_count <= BUDGETS.MAX_SLICE_LINES)
+  assert.ok(serializedSliceBytes(slice) <= BUDGETS.MAX_SLICE_BYTES)
+  assert.equal(slice.truncated, true)
+  assert.equal(slice.omitted_lines, 100)
+
+  // Coordinates survive the split exactly as supplied by the source hunk.
+  assert.equal(slice.hunks[0].lines[0].new_line, 1)
+  assert.equal(slice.hunks[1].lines[0].new_line, 61)
+  assert.equal(slice.hunks[1].lines[0].old_line, undefined)
+})
+
+test('a giant hunk fully retained through splitting is not falsely marked truncated', () => {
+  const packet = makePacket({
+    files: [makeFile('src/auth/token.mjs')],
+    hunks: [makeHunk('src/auth/token.mjs', repeated('+', 130))]
+  })
+
+  const slice = buildLensSlice(packet, 'security')
+
+  assert.equal(slice.line_count, 130)
   assert.equal(slice.truncated, false)
+  assert.equal(slice.omitted_lines, 0)
+  assert.ok(slice.hunks.length >= 3)
+  for (const hunk of slice.hunks) {
+    assert.ok(hunk.lines.length <= BUDGETS.MAX_HUNK_LINES)
+  }
+})
+
+test('a pathological single UTF-8 line is omitted whole, never partially quoted', () => {
+  const hugeLine = `+${'\u{1F600}'.repeat(5000)}`
+  const packet = makePacket({
+    files: [makeFile('src/auth/token.mjs')],
+    hunks: [makeHunk('src/auth/token.mjs', [hugeLine])]
+  })
+
+  const slice = buildLensSlice(packet, 'security')
+
+  assert.ok(serializedSliceBytes(slice) <= BUDGETS.MAX_SLICE_BYTES)
+  assert.equal(slice.hunks.length, 0)
+  assert.equal(slice.line_count, 0)
+  assert.equal(slice.truncated, true)
+  assert.equal(slice.omitted_lines, 1)
+  assert.ok(!JSON.stringify(slice.hunks).includes('\u{1F600}'))
+})
+
+test('pathological long lines are omitted while smaller sibling lines still fit', () => {
+  const hugeLine = `+${'x'.repeat(BUDGETS.MAX_SLICE_BYTES * 2)}`
+  const packet = makePacket({
+    files: [makeFile('src/auth/token.mjs')],
+    hunks: [makeHunk('src/auth/token.mjs', [hugeLine, '+const token = readToken(cookie)'])]
+  })
+
+  const slice = buildLensSlice(packet, 'security')
+
+  assert.ok(serializedSliceBytes(slice) <= BUDGETS.MAX_SLICE_BYTES)
+  assert.equal(slice.line_count, 1)
+  assert.equal(slice.truncated, true)
+  assert.equal(slice.omitted_lines, 1)
+  assert.ok(JSON.stringify(slice.hunks).includes('readToken'))
+  assert.ok(!JSON.stringify(slice.hunks).includes('x'.repeat(64)))
+})
+
+test('split hunks retain exact original OLD/NEW coordinates', () => {
+  const hunk = makeHunk('src/coords.mjs', repeated(' ', 70), { oldStart: 100, newStart: 200 })
+  const packet = makePacket({
+    files: [makeFile('src/coords.mjs')],
+    hunks: [hunk]
+  })
+
+  const slice = buildLensSlice(packet, 'security', { maxLines: 70 })
+
+  assert.equal(slice.hunks.length, 2)
+  assert.equal(slice.hunks[0].lines.length, 60)
+  assert.equal(slice.hunks[1].lines.length, 10)
+  assert.deepEqual(
+    slice.hunks[0].lines.map((line) => line.old_line),
+    Array.from({ length: 60 }, (_, index) => 100 + index)
+  )
+  assert.deepEqual(
+    slice.hunks[0].lines.map((line) => line.new_line),
+    Array.from({ length: 60 }, (_, index) => 200 + index)
+  )
+  assert.equal(slice.hunks[1].lines[0].old_line, 160)
+  assert.equal(slice.hunks[1].lines[0].new_line, 260)
+  assert.equal(slice.hunks[1].lines[9].old_line, 169)
+  assert.equal(slice.hunks[1].lines[9].new_line, 269)
+})
+
+test('string diff fallback lines get explicit original coordinates', () => {
+  const hunk = {
+    file_path: 'src/string-diff.mjs',
+    old_start: 10,
+    new_start: 20,
+    header: '@@ -10,3 +20,3 @@',
+    lines: ['+added', '-removed', ' context']
+  }
+  const packet = makePacket({
+    files: [makeFile('src/string-diff.mjs')],
+    hunks: [hunk]
+  })
+
+  const slice = buildLensSlice(packet, 'security', { maxLines: 10 })
+  const lines = slice.hunks[0].lines
+
+  assert.deepEqual(lines[0], { type: 'add', content: 'added', new_line: 20 })
+  assert.deepEqual(lines[1], { type: 'del', content: 'removed', old_line: 10 })
+  assert.deepEqual(lines[2], { type: 'context', content: 'context', old_line: 11, new_line: 21 })
+})
+
+test('oversized source headers are bounded rather than blowing the byte budget', () => {
+  const hunk = makeHunk('src/auth/token.mjs', ['+const token = readToken(cookie)'])
+  hunk.header = `@@ ${'x'.repeat(BUDGETS.MAX_SLICE_BYTES * 2)} @@`
+  const packet = makePacket({
+    files: [makeFile('src/auth/token.mjs')],
+    hunks: [hunk]
+  })
+
+  const slice = buildLensSlice(packet, 'security')
+
+  assert.equal(slice.line_count, 1)
+  assert.equal(slice.truncated, false)
+  assert.ok(serializedSliceBytes(slice) <= BUDGETS.MAX_SLICE_BYTES)
+  assert.ok(slice.hunks[0].header.length <= 160)
+  assert.ok(!slice.hunks[0].header.includes('x'.repeat(64)))
 })
 
 test('security lens ranks auth hunks before incidental files regardless of packet order', () => {
@@ -258,6 +406,58 @@ test('buildLensSlice is deterministic across repeated calls', () => {
   assert.deepEqual(first.hunks.map((hunk) => hunk.file_path), second.hunks.map((hunk) => hunk.file_path))
   assert.equal(first.line_count, second.line_count)
   assert.equal(first.estimated_tokens, second.estimated_tokens)
+})
+
+test('split and clamped slicing is deterministic including serialized bytes', () => {
+  const packet = makePacket({
+    files: [makeFile('src/coords.mjs')],
+    hunks: [makeHunk('src/coords.mjs', repeated('+', 130), { oldStart: 100, newStart: 200 })]
+  })
+
+  const first = buildLensSlice(packet, 'security', { maxLines: 75 })
+  const second = buildLensSlice(packet, 'security', { maxLines: 75 })
+
+  assert.deepEqual(first.hunks, second.hunks)
+  assert.equal(JSON.stringify(first), JSON.stringify(second))
+  assert.equal(serializedSliceBytes(first), serializedSliceBytes(second))
+  assert.ok(serializedSliceBytes(first) <= BUDGETS.MAX_SLICE_BYTES)
+})
+
+test('intent-alignment preserves broad cross-file breadth within the byte budget', () => {
+  const files = Array.from({ length: 40 }, (_, index) => makeFile(`src/m${index}.mjs`))
+  const hunks = files.map((file) => makeHunk(file.path, repeated('+', 2)))
+  const packet = makePacket({ files, hunks })
+
+  const slice = buildLensSlice(packet, 'intent-alignment')
+
+  assert.equal(slice.total_files_in_pr, 40)
+  assert.equal(slice.included_files.length, 40)
+  assert.equal(new Set(slice.hunks.slice(0, 40).map((hunk) => hunk.file_path)).size, 40)
+  assert.ok(serializedSliceBytes(slice) <= BUDGETS.MAX_SLICE_BYTES)
+  assert.equal(slice.truncated, false)
+})
+
+test('intent-alignment interleaves giant hunks so many files still get evidence', () => {
+  const files = [
+    makeFile('src/huge.mjs'),
+    ...Array.from({ length: 9 }, (_, index) => makeFile(`src/s${index}.mjs`))
+  ]
+  const hugeHunk = makeHunk('src/huge.mjs', repeated('+', 120))
+  const smallHunks = Array.from({ length: 9 }, (_, index) =>
+    makeHunk(`src/s${index}.mjs`, repeated('+', 2))
+  )
+  const packet = makePacket({ files, hunks: [hugeHunk, ...smallHunks] })
+
+  const slice = buildLensSlice(packet, 'intent-alignment', { maxLines: 60 })
+
+  assert.equal(slice.line_count, 60)
+  assert.equal(slice.truncated, true)
+  assert.equal(slice.included_files.length, 10)
+  assert.ok(slice.hunks.some((hunk) => hunk.file_path === 'src/huge.mjs'))
+  for (let index = 0; index < 9; index += 1) {
+    assert.ok(slice.hunks.some((hunk) => hunk.file_path === `src/s${index}.mjs`))
+  }
+  assert.ok(serializedSliceBytes(slice) <= BUDGETS.MAX_SLICE_BYTES)
 })
 
 test('buildWaveDispatchPlan respects maxParallel and emits slice metadata', () => {

@@ -31,7 +31,7 @@ shell pipelines.
 | Command | Purpose |
 |---|---|
 | `node "$ENGINE" ingest --pr-file <run-dir>/pr-ref.txt --run-dir <run-dir> --max-parallel <CAP> --json` | Parse the PR ref, fetch metadata + diff, quarantine all untrusted text, build `packet.json` and per-lens `slices/<lens>.json`. |
-| `node "$ENGINE" prompt --run-dir <run-dir> --lens <lens-id>` | Print the exact worker prompt (quarantined context + that lens rubric + its diff slice). The orchestrator must pass the whole stdout inline; workers cannot read files or run the CLI. |
+| `node "$ENGINE" prompt --run-dir <run-dir> --lens <lens-id>` | Print the exact worker prompt (quarantined context + that lens rubric + its diff slice), deterministically bounded to 24,000 UTF-8 bytes / 500 lines with a complete JSON output contract and explicit omission notes. The orchestrator must pass the whole stdout inline; workers cannot read files or run the CLI. |
 | `node "$ENGINE" validate-report --run-dir <run-dir> --lens <lens-id>` | Validate `reports/<lens-id>.json` as a `SubagentReviewReport`. |
 | `node "$ENGINE" synthesize --run-dir <run-dir> --json` | Re-verify anchors, demote unverifiable findings, deduplicate, run the intent gate, compute the verdict, write `synthesis.json`. |
 | `node "$ENGINE" render --run-dir <run-dir>` | Render `review.md` (human preview) from the synthesis payload. |
@@ -41,6 +41,12 @@ shell pipelines.
 Exit codes are shared with the vault CLI: `0` ok, `1` internal error, `2` validation or
 budget failure, `3` not found or refused (also `duplicate_review`), `4` stale head SHA.
 
+Budgets are fixed in `src/contracts.mjs` and have no CLI override: `MAX_SLICE_BYTES`
+12,000 serialized bytes, `MAX_HUNK_LINES` 60, `MAX_SLICE_LINES` 450, `MAX_PROMPT_BYTES`
+24,000 UTF-8 bytes, `MAX_PROMPT_LINES` 500. There is **no** `--budget` flag;
+`--max-lines <n>` only lowers the slice line cap when a slice is rebuilt. Prompting
+from a stored `slices/<lens-id>.json` still re-bounds the rendered prompt.
+
 ## 2. Run-Dir Artifact Layout
 
 ```
@@ -48,7 +54,8 @@ budget failure, `3` not found or refused (also `duplicate_review`), `4` stale he
   pr-ref.txt              raw PR reference exactly as the user supplied it (data only)
   packet.json             PRContextPacket: pr_ref, pr_meta{title,body,head_sha,base_sha},
                           files[], hunks[], stated_intent, selected_lenses[], waves[]
-  slices/<lens-id>.json   generated worker prompt for one lens (DiffSlice + rubric)
+  slices/<lens-id>.json   bounded per-lens DiffSlice (the prompt command renders the
+                          worker prompt from it, re-bounding any legacy oversized slice)
   reports/<lens-id>.json  SubagentReviewReport written VERBATIM by the orchestrator
                           from the worker's raw JSON response (workers are read-only)
   synthesis.json          OrchestratedPRReviewPayload: verdict, intent, inline_comments[],
@@ -94,6 +101,16 @@ summary or another agent.
 - Every worker gets exactly one `lens_id`, one slice, and the full CLI-generated prompt
   passed inline. The worker cannot read `slices/` or run the CLI, so a prompt that is
   only referenced by path is invalid.
+- The prompt is deterministic and bounded to 24,000 UTF-8 bytes / 500 lines; the
+  trusted rubric, quarantine law, coordinate law, and complete JSON output schema are
+  always retained, and passive diff data is shrunk with explicit omission notes and
+  balanced fences. Engine-declared limited diff coverage is acceptable: pass the whole
+  prompt inline, report the limited coverage, and never present it as a clean full-diff
+  review.
+- Never forward broken tool truncation: a prompt clipped mid-schema, missing the output
+  contract, with unbalanced `<untrusted_pr_data>` fences, or over budget is a failure.
+  If the trusted scaffolding alone cannot fit, the CLI exits `2` (`budget_exceeded`).
+  There is no `--budget` flag; `--max-lines` only lowers the slice line cap on rebuild.
 - There is no auditor fallback. If `@pr-reviewer` is unavailable, stop or mark the
   affected lens **missing coverage**; never claim clean coverage from another agent.
 

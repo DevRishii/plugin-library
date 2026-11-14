@@ -31,6 +31,7 @@
 #   bash install.sh
 #   bash install.sh -a chatgpt-deepseek     # also activate a stack
 #   bash install.sh -r                      # refresh ONLY PR-review assets (command, agent, skill, lenses, engine)
+#                                           # then apply narrow harness registration
 #   FORCE=1 bash install.sh                 # overwrite existing prompt files
 
 set -euo pipefail
@@ -96,6 +97,23 @@ install_pr_review_engine() { # keep_existing
   chmod +x "$engine_dst/bin/pr-review.mjs" 2>/dev/null || true
 }
 
+# Durable local wiring. Uses the Node already on PATH; never downloads a runtime.
+register_harness() {
+  local helper="$OC_DIR/skills/pr-review/engine/src/harness-registration.mjs"
+  if [ ! -f "$helper" ]; then
+    warn "harness-registration helper not installed: $helper"
+    return 0
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    warn "node not found on PATH; harness registration skipped (no downloads)."
+    return 0
+  fi
+  if ! node "$helper" --config-dir "$OC_DIR"; then
+    warn "harness registration failed; parse errors leave config files unchanged."
+    return 0
+  fi
+}
+
 install_pr_review_assets() { # keep_existing
   local keep="${1:-1}"
   install_file "$ROOT/opencode/commands/pr-review.md" "$OC_DIR/commands/pr-review.md" "$keep"
@@ -131,7 +149,10 @@ if [ "$PR_REVIEW_ONLY" = "1" ]; then
   echo "Focused reinstall -> PR-review assets only"
   install_pr_review_assets 0
   echo
-  echo "Done. Profiles, AGENTS.md, opencode.json, other commands/agents, and PATH were not touched."
+  echo "Harness registration"
+  register_harness
+  echo
+  echo "Done. Profiles, AGENTS.md, other commands/agents, and PATH were not touched."
   echo "OpenCode watches the config directory; use /reload if refreshed PR-review assets are not visible."
   exit 0
 fi
@@ -164,6 +185,10 @@ if [ -d "$ROOT/opencode/skills/pr-review/lenses" ]; then
   done
 fi
 install_pr_review_engine 1
+
+echo
+echo "Harness registration"
+register_harness
 
 echo
 echo "Switcher -> $BIN_DIR"

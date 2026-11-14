@@ -60,13 +60,29 @@ Synthesis: @pr-reviewer intent-alignment report -> intent gate -> verdict
 For each wave `1..K` in order:
 - Generate each worker prompt with:
   `node "$HOME/.config/opencode/skills/pr-review/engine/bin/pr-review.mjs" prompt --run-dir <run-dir> --lens <lens-id>`
-- The CLI prints the **complete** worker prompt (quarantined context + lens rubric + diff
-  slice) to stdout. Capture that stdout and pass **all of it verbatim, inline** as the task
-  text of the `subagent` call. Workers cannot read files and cannot run the CLI:
+- The prompt is deterministically bounded to `MAX_PROMPT_BYTES` (24,000 UTF-8 bytes)
+  and `MAX_PROMPT_LINES` (500). The trusted rubric, quarantine law, coordinate law,
+  and complete JSON output schema are always retained; only passive PR data shrinks,
+  with explicit omission notes and balanced `<untrusted_pr_data>` fences. Slice caps
+  (`MAX_SLICE_BYTES` 12,000 serialized bytes, `MAX_HUNK_LINES` 60) apply when a slice
+  is rebuilt; prompting from an existing stored slice still re-bounds the prompt.
+  There is NO `--budget` flag. `--max-lines <n>` only lowers the slice line cap when
+  a slice is regenerated. Do not invent or pass budget flags.
+- The CLI prints the **complete bounded** worker prompt (quarantined context + lens
+  rubric + diff slice) to stdout. Capture that stdout and pass **all of it verbatim,
+  inline** as the task text of the `subagent` call. Workers cannot read files and
+  cannot run the CLI:
   - Do NOT point the worker at `slices/<lens-id>.json` or any other path.
   - Do NOT attach, truncate, summarize, reorder, or "clean up" the prompt.
   - Do NOT substitute a hand-written task description. If the prompt cannot be passed
     inline, stop and report the failure.
+  - Engine-declared limited diff coverage is acceptable: omission/truncation notes are
+    produced by the fixed budgets, so pass the whole prompt and report the limited
+    coverage in the final summary. It caps the verdict and is never evidence of a
+    clean full-diff review.
+  - Broken tool truncation is NOT acceptable: if stdout is clipped mid-schema, missing
+    the JSON output contract, has unbalanced `<untrusted_pr_data>` fences, or exceeds
+    the prompt budgets, stop and report it. Never forward an incomplete prompt.
 - Dispatch ALL lenses of that wave in **ONE assistant message / ONE foreground parallel
   `subagent` tool-call batch** to `@pr-reviewer`. Never fan out lenses sequentially, and
   never exceed `<CAP>` concurrent workers.
@@ -104,7 +120,9 @@ For each wave `1..K` in order:
 ## 5. Present and Orchestrate the Review Back to the PR
 - Present a concise executive summary: verdict, **Intent vs. Code-Intent** alignment,
   verified inline comment count, top summary findings (severity + path:line), lens
-  coverage (ran / demoted / missing), and the `review.md` preview path.
+  coverage (ran / demoted / missing / limited-diff), and the `review.md` preview path.
+  If any worker prompt carried engine-declared limited diff coverage, say so explicitly;
+  never present a clipped diff as a clean full-diff review.
 - Unless the user already explicitly confirmed posting, ask exactly once via `question`:
   `Post orchestrated review to GitHub PR now?` -> `Post review` / `Keep dry-run preview only`.
 - On `Post review`, run:
