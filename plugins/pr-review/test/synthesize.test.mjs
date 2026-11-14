@@ -187,6 +187,37 @@ function report(overrides = {}) {
   }
 }
 
+function alignedIntentReport(overrides = {}) {
+  return report({
+    lens_id: 'intent-alignment',
+    intent_alignment: {
+      verdict: 'ALIGNED',
+      has_problem_statement: true,
+      has_solution: true,
+      claim_mappings: [
+        { claim_id: 'c1', claim: 'Refresh auth tokens on expiry', status: 'covered', matched_files: [AUTH_FILE] }
+      ],
+      scope_creep_files: [],
+      unfulfilled_claims: [],
+      summary: 'Stated claim maps to the auth token refresh diff.'
+    },
+    ...overrides
+  })
+}
+
+function intentReportWith(intentAlignment) {
+  return report({ lens_id: 'intent-alignment', intent_alignment: intentAlignment })
+}
+
+// All three selected lenses covered exactly once, with specialist intent data.
+function completeReports(overrides = {}) {
+  return [
+    alignedIntentReport(overrides.intent),
+    report({ lens_id: 'security', findings: overrides.securityFindings ?? [] }),
+    report({ lens_id: 'data-race-conditions' })
+  ]
+}
+
 test('evaluateIntentAlignment: ALIGNED when claims map to changed files and both sections exist', () => {
   const intent = evaluateIntentAlignment(authPacket())
   assert.equal(intent.verdict, 'ALIGNED')
@@ -326,7 +357,7 @@ test('deduplicateFindings: merges corroborating lenses and upgrades confidence',
   assert.equal(canonical.line_end, 13)
 })
 
-test('computeOverallVerdict: verified blockers and high-confidence HIGHs request changes', () => {
+test('computeOverallVerdict: verified blockers and any intact HIGH request changes', () => {
   const intent = { verdict: 'ALIGNED' }
   assert.equal(computeOverallVerdict([finding({ verified: true })], intent), 'REQUEST_CHANGES')
   assert.equal(
@@ -335,29 +366,140 @@ test('computeOverallVerdict: verified blockers and high-confidence HIGHs request
   )
   assert.equal(
     computeOverallVerdict([finding({ verified: true, severity: 'HIGH', confidence: 'LOW' })], intent),
+    'REQUEST_CHANGES'
+  )
+})
+
+test('computeOverallVerdict: intact MEDIUM blocks approval without strictApprove', () => {
+  const intent = { verdict: 'ALIGNED' }
+  assert.equal(
+    computeOverallVerdict([finding({ verified: true, severity: 'MEDIUM', confidence: 'HIGH' })], intent),
+    'COMMENT'
+  )
+  assert.equal(
+    computeOverallVerdict([finding({ verified: true, severity: 'LOW', confidence: 'HIGH' })], intent),
+    'APPROVE'
+  )
+  assert.equal(
+    computeOverallVerdict([finding({ verified: true, severity: 'NIT', confidence: 'LOW' })], intent),
     'APPROVE'
   )
 })
 
-test('synthesizeReview: clean PR with ALIGNED intent yields APPROVE', () => {
-  const payload = synthesizeReview(authPacket(), [report()], { renderMarkdown: (draft) => `# ${draft.verdict}` })
+test('computeOverallVerdict: missing coverage or intent report cannot approve', () => {
+  const intent = { verdict: 'ALIGNED' }
+  assert.equal(computeOverallVerdict([], intent, { completeCoverage: false, hasIntentReport: true }), 'COMMENT')
+  assert.equal(computeOverallVerdict([], intent, { completeCoverage: true, hasIntentReport: false }), 'COMMENT')
+  assert.equal(computeOverallVerdict([], intent, { completeCoverage: true, hasIntentReport: true }), 'APPROVE')
+})
+
+test('synthesizeReview: complete unique reports with ALIGNED intent yield APPROVE', () => {
+  const payload = synthesizeReview(authPacket(), completeReports(), { renderMarkdown: (draft) => `# ${draft.verdict}` })
   assert.equal(payload.verdict, 'APPROVE')
   assert.equal(payload.intent.verdict, 'ALIGNED')
   assert.deepEqual(payload.inline_comments, [])
   assert.deepEqual(payload.summary_findings, [])
   assert.equal(payload.markdown_body, '# APPROVE')
   assert.equal(payload.lens_coverage.length, 3)
+  assert.equal(payload.lens_coverage.every((entry) => entry.status === 'completed' && entry.report_count === 1), true)
+  assert.equal(payload.stats.selected_lenses, 3)
+  assert.equal(payload.stats.subagent_reports, 3)
   assert.equal(payload.stats.dropped_hallucinated_path, 0)
 })
 
-test('synthesizeReview: PARTIAL and UNDETERMINABLE intent can never APPROVE', () => {
-  const partial = synthesizeReview(partialPacket(), [report()])
+test('synthesizeReview: missing intent report is UNDETERMINABLE and can never APPROVE', () => {
+  const payload = synthesizeReview(authPacket(), [
+    report({ lens_id: 'security' }),
+    report({ lens_id: 'data-race-conditions' })
+  ])
+  assert.equal(payload.intent.verdict, 'UNDETERMINABLE')
+  assert.equal(payload.verdict, 'COMMENT')
+  const intentCoverage = payload.lens_coverage.find((entry) => entry.lens_id === 'intent-alignment')
+  assert.equal(intentCoverage.status, 'missing')
+  assert.equal(intentCoverage.report_count, 0)
+})
+
+test('synthesizeReview: empty report list yields COMMENT with visible missing coverage', () => {
+  const payload = synthesizeReview(authPacket(), [])
+  assert.equal(payload.intent.verdict, 'UNDETERMINABLE')
+  assert.equal(payload.verdict, 'COMMENT')
+  assert.equal(payload.lens_coverage.every((entry) => entry.status === 'missing'), true)
+  assert.equal(payload.stats.subagent_reports, 0)
+})
+
+test('synthesizeReview: intent report without specialist data is UNDETERMINABLE', () => {
+  const payload = synthesizeReview(authPacket(), [
+    report({ lens_id: 'intent-alignment' }),
+    report({ lens_id: 'security' }),
+    report({ lens_id: 'data-race-conditions' })
+  ])
+  assert.equal(payload.intent.verdict, 'UNDETERMINABLE')
+  assert.equal(payload.verdict, 'COMMENT')
+})
+
+test('synthesizeReview: empty object/array intent_alignment is rejected as schema invalid', () => {
+  for (const malformed of [{}, []]) {
+    assert.throws(
+      () => synthesizeReview(authPacket(), [
+        intentReportWith(malformed),
+        report({ lens_id: 'security' }),
+        report({ lens_id: 'data-race-conditions' })
+      ]),
+      (error) => error instanceof ContractError && error.code === ERROR_CODES.SCHEMA_INVALID
+    )
+  }
+})
+
+test('synthesizeReview: invalid verdict or missing intent fields is rejected as schema invalid', () => {
+  const invalidVerdict = { ...alignedIntentReport().intent_alignment, verdict: 'MAYBE' }
+  const missingFields = { verdict: 'ALIGNED' }
+  const missingSummary = { ...alignedIntentReport().intent_alignment, summary: '   ' }
+  for (const malformed of [invalidVerdict, missingFields, missingSummary]) {
+    assert.throws(
+      () => synthesizeReview(authPacket(), [
+        intentReportWith(malformed),
+        report({ lens_id: 'security' }),
+        report({ lens_id: 'data-race-conditions' })
+      ]),
+      (error) => error instanceof ContractError && error.code === ERROR_CODES.SCHEMA_INVALID
+    )
+  }
+})
+
+test('synthesizeReview: PARTIAL and UNDETERMINABLE specialist intent can never APPROVE', () => {
+  const partialIntent = alignedIntentReport()
+  partialIntent.intent_alignment = { ...partialIntent.intent_alignment, verdict: 'PARTIAL' }
+  const partial = synthesizeReview(partialPacket(), [
+    partialIntent,
+    report({ lens_id: 'security' }),
+    report({ lens_id: 'data-race-conditions' })
+  ])
   assert.equal(partial.intent.verdict, 'PARTIAL')
   assert.equal(partial.verdict, 'COMMENT')
 
-  const undetermined = synthesizeReview(undeterminablePacket(), [report()])
+  const undeterminedIntent = alignedIntentReport()
+  undeterminedIntent.intent_alignment = { ...undeterminedIntent.intent_alignment, verdict: 'UNDETERMINABLE' }
+  const undetermined = synthesizeReview(undeterminablePacket(), [
+    undeterminedIntent,
+    report({ lens_id: 'security' }),
+    report({ lens_id: 'data-race-conditions' })
+  ])
   assert.equal(undetermined.intent.verdict, 'UNDETERMINABLE')
   assert.equal(undetermined.verdict, 'COMMENT')
+})
+
+test('synthesizeReview: duplicate reports for one lens are rejected', () => {
+  assert.throws(
+    () => synthesizeReview(authPacket(), [...completeReports(), report({ lens_id: 'security' })]),
+    (error) => error instanceof ContractError && error.code === ERROR_CODES.SCHEMA_INVALID
+  )
+})
+
+test('synthesizeReview: unselected lens reports are rejected', () => {
+  assert.throws(
+    () => synthesizeReview(authPacket(), [report({ lens_id: 'testing-verification' })]),
+    (error) => error instanceof ContractError && error.code === ERROR_CODES.SCHEMA_INVALID
+  )
 })
 
 test('synthesizeReview: a mismatched head_sha throws STALE_HEAD_SHA', () => {
@@ -380,19 +522,37 @@ test('synthesizeReview: hallucinated file paths are dropped and counted', () => 
 })
 
 test('synthesizeReview: a verified blocker produces REQUEST_CHANGES and an inline comment', () => {
-  const payload = synthesizeReview(authPacket(), [report({ findings: [finding()] })])
+  const payload = synthesizeReview(authPacket(), completeReports({ securityFindings: [finding()] }))
   assert.equal(payload.verdict, 'REQUEST_CHANGES')
   assert.equal(payload.inline_comments.length, 1)
   assert.deepEqual(payload.summary_findings, [])
 })
 
 test('synthesizeReview: an unverified blocker is demoted and cannot block', () => {
-  const payload = synthesizeReview(authPacket(), [
-    report({ findings: [finding({ line_start: 99, line_end: 99 })] })
-  ])
+  const payload = synthesizeReview(authPacket(), completeReports({
+    securityFindings: [finding({ line_start: 99, line_end: 99 })]
+  }))
   assert.equal(payload.verdict, 'APPROVE')
   assert.equal(payload.inline_comments.length, 0)
   assert.equal(payload.summary_findings.length, 1)
   assert.equal(payload.summary_findings[0].severity, 'MEDIUM')
+  assert.equal(payload.summary_findings[0].verified, false)
   assert.equal(payload.summary_findings[0].demote_reason, 'line_not_anchorable')
+})
+
+test('synthesizeReview: an intact MEDIUM blocks approval by default', () => {
+  const payload = synthesizeReview(authPacket(), completeReports({
+    securityFindings: [finding({ severity: 'MEDIUM', confidence: 'HIGH' })]
+  }))
+  assert.equal(payload.inline_comments.length, 1)
+  assert.equal(payload.inline_comments[0].severity, 'MEDIUM')
+  assert.equal(payload.verdict, 'COMMENT')
+})
+
+test('synthesizeReview: an intact LOW-confidence HIGH still requests changes', () => {
+  const payload = synthesizeReview(authPacket(), completeReports({
+    securityFindings: [finding({ severity: 'HIGH', confidence: 'LOW' })]
+  }))
+  assert.equal(payload.verdict, 'REQUEST_CHANGES')
+  assert.equal(payload.inline_comments.length, 1)
 })

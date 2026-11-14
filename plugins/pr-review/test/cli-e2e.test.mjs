@@ -299,6 +299,96 @@ test('End-to-end swarm CLI pipeline: ingest -> prompt -> validate-report -> synt
   }
 })
 
+test('CLI validate-report rejects a report whose lens_id does not match --lens', async () => {
+  const workTmp = mkdtempSync(join(tmpdir(), 'hivemind-pr-review-lens-'))
+  try {
+    writeFileSync(join(workTmp, 'mismatched.json'), JSON.stringify({
+      schema_version: SCHEMA_VERSION,
+      lens_id: 'intent-alignment',
+      head_sha: 'a'.repeat(40),
+      summary: 'This report belongs to intent-alignment, not security.',
+      findings: []
+    }, null, 2), 'utf8')
+
+    const res = await invokeCli([
+      'validate-report',
+      join(workTmp, 'mismatched.json'),
+      '--lens', 'security',
+      '--json'
+    ])
+    assert.equal(res.code, EXIT_CODES.VALIDATION)
+    assert.equal(res.errJson.error.code, 'invalid_input')
+    assert.match(res.errJson.error.message, /does not match --lens security/)
+  } finally {
+    rmSync(workTmp, { recursive: true, force: true })
+  }
+})
+
+test('CLI publish run-dir rejects a payload head_sha that differs from packet.json before any network', async () => {
+  const workTmp = mkdtempSync(join(tmpdir(), 'hivemind-pr-review-head-'))
+  try {
+    const packetHead = '1'.repeat(40)
+    const payloadHead = '2'.repeat(40)
+    writeFileSync(join(workTmp, 'packet.json'), JSON.stringify({
+      schema_version: SCHEMA_VERSION,
+      pr_ref: {
+        owner: 'acme',
+        repo: 'plugin-library',
+        number: 42,
+        canonical_url: 'https://github.com/acme/plugin-library/pull/42',
+        short_ref: 'acme/plugin-library#42'
+      },
+      pr_meta: { number: 42, head_sha: packetHead, base_sha: '3'.repeat(40) },
+      files: [],
+      hunks: [],
+      selected_lenses: [],
+      waves: []
+    }, null, 2), 'utf8')
+    writeFileSync(join(workTmp, 'synthesis.json'), JSON.stringify({
+      schema_version: SCHEMA_VERSION,
+      pr_ref: {
+        canonical_url: 'https://github.com/acme/plugin-library/pull/42',
+        short_ref: 'acme/plugin-library#42',
+        owner: 'acme',
+        repo: 'plugin-library',
+        number: 42
+      },
+      head_sha: payloadHead,
+      verdict: 'COMMENT',
+      intent: {
+        verdict: 'ALIGNED',
+        has_problem_statement: true,
+        has_solution: true,
+        claim_mappings: [],
+        scope_creep_files: [],
+        unfulfilled_claims: [],
+        summary: 'Valid payload except for a stale head SHA.'
+      },
+      inline_comments: [],
+      summary_findings: [],
+      lens_coverage: [],
+      stats: { subagent_reports: 0, selected_lenses: 0 }
+    }, null, 2), 'utf8')
+
+    let networkCalls = 0
+    const res = await invokeCli(
+      ['publish', '--run-dir', workTmp, '--post', '--confirm', '--json'],
+      {
+        env: { GITHUB_TOKEN: 'test-ephemeral-token' },
+        fetchImpl: async () => {
+          networkCalls += 1
+          throw new Error('network should not be called')
+        }
+      }
+    )
+    assert.equal(res.code, EXIT_CODES.STALE_HEAD)
+    assert.equal(res.errJson.error.code, 'stale_head_sha')
+    assert.equal(networkCalls, 0)
+  } finally {
+    rmSync(workTmp, { recursive: true, force: true })
+  }
+})
+
 test('Hivemind pack wiring is consistent across commands, agents, skills, switchers, and all 5 profiles', () => {
   const packRoot = join(REPO_ROOT, 'packs', 'hivemind')
   const cmdText = readFileSync(join(packRoot, 'opencode', 'commands', 'pr-review.md'), 'utf8')

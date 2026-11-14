@@ -261,6 +261,21 @@ function normalizeClaimStatus(rawStatus) {
   return null
 }
 
+/**
+ * A specialist override may only count as evidence when it is a complete,
+ * valid IntentAlignmentReport. Empty objects/arrays or partial bodies (for
+ * example `{ verdict: "ALIGNED" }`) must be treated as missing data instead
+ * of bypassing the requireSpecialist gate.
+ */
+function validatedSpecialistOverride(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+  try {
+    return validateIntentAlignmentReport(candidate)
+  } catch {
+    return null
+  }
+}
+
 function sanitizeOverride(override, packet) {
   if (!override || typeof override !== 'object') {
     return { verdict: null, mappings: [], scopeCreepFiles: [], extraUnfulfilled: [] }
@@ -394,17 +409,24 @@ function buildSummary(verdict, intent, claimMappings, unfulfilledClaims, scopeCr
  *
  * @param {object} packet packet-shaped PRContextPacket
  * @param {object|null} subagentIntentOverride optional intent-alignment report body
+ * @param {{requireSpecialist?: boolean}} options
  * @returns {object} validated IntentAlignmentReport
  */
-export function evaluateIntentAlignment(packet, subagentIntentOverride = null) {
+export function evaluateIntentAlignment(packet, subagentIntentOverride = null, options = {}) {
   if (!packet || typeof packet !== 'object') {
     throw new TypeError('evaluateIntentAlignment requires a PR context packet object')
   }
 
+  const specialistOverride = validatedSpecialistOverride(subagentIntentOverride)
+  const hasSpecialistData = specialistOverride !== null
   const intent = structuralIntent(packet)
   const files = Array.isArray(packet.files) ? packet.files : []
   const deterministicMappings = intent.claims.map((claim) => evaluateClaim(claim, packet, files))
-  const override = sanitizeOverride(subagentIntentOverride, packet)
+  // Under requireSpecialist, malformed specialist bodies are ignored entirely
+  // so partial/empty payloads cannot inject pseudo-evidence. Outside the gate,
+  // preserve the historical best-effort merge of partial override bodies.
+  const overrideSource = options.requireSpecialist && !hasSpecialistData ? null : subagentIntentOverride
+  const override = sanitizeOverride(overrideSource, packet)
   const claimMappings = mergeClaimMappings(deterministicMappings, override)
   const scopeCreepFiles = detectScopeCreep(packet, intent, claimMappings, override)
   const unfulfilledClaims = claimMappings
@@ -459,6 +481,19 @@ export function evaluateIntentAlignment(packet, subagentIntentOverride = null) {
     verdict = override.verdict === 'UNDETERMINABLE' ? 'UNDETERMINABLE' : 'PARTIAL'
   } else {
     verdict = 'ALIGNED'
+  }
+
+  // Without valid specialist intent data, lexical heuristics must never
+  // certify ALIGNED/PARTIAL. A concrete contradiction may still surface as
+  // MISALIGNED, and an explicit non-ALIGNED specialist verdict is respected.
+  if (options.requireSpecialist) {
+    if (!hasSpecialistData) {
+      verdict = contradictedCount > 0 ? 'MISALIGNED' : 'UNDETERMINABLE'
+    } else if (verdict === 'ALIGNED' && specialistOverride.verdict !== 'ALIGNED') {
+      if (specialistOverride.verdict === 'MISALIGNED') verdict = 'MISALIGNED'
+      else if (specialistOverride.verdict === 'UNDETERMINABLE') verdict = 'UNDETERMINABLE'
+      else verdict = 'PARTIAL'
+    }
   }
 
   const report = {

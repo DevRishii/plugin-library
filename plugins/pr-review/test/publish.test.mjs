@@ -60,9 +60,78 @@ function makePayload(overrides = {}) {
       }
     ],
     lens_coverage: [
-      { lens_id: 'security', status: 'completed', finding_count: 1 },
-      { lens_id: 'testing-verification', status: 'completed', finding_count: 1 }
+      { lens_id: 'security', status: 'completed', reviewed: true, report_count: 1, finding_count: 1 },
+      { lens_id: 'testing-verification', status: 'completed', reviewed: true, report_count: 1, finding_count: 1 }
     ],
+    stats: {
+      subagent_reports: 2,
+      selected_lenses: 2,
+      raw_findings: 2,
+      findings_total: 2,
+      findings_reported: 2,
+      verified_inline: 1,
+      demoted_to_summary: 1,
+      deduplicated_merged: 0,
+      findings_deduped: 0,
+      dropped_hallucinated_path: 0
+    },
+    ...overrides
+  }
+}
+
+function makeCompleteApprovePayload(overrides = {}) {
+  return makePayload({
+    verdict: 'APPROVE',
+    intent: {
+      verdict: 'ALIGNED',
+      has_problem_statement: true,
+      has_solution: true,
+      claim_mappings: [
+        {
+          claim_id: 'c1',
+          claim: 'Publish reviews through GitHub.',
+          status: 'covered',
+          matched_files: ['src/runner.mjs']
+        }
+      ],
+      scope_creep_files: [],
+      unfulfilled_claims: [],
+      summary: 'The diff fulfills the stated Problem Statement and Solution.'
+    },
+    inline_comments: [],
+    summary_findings: [],
+    lens_coverage: [
+      { lens_id: 'intent-alignment', status: 'completed', reviewed: true, report_count: 1, finding_count: 0 },
+      { lens_id: 'security', status: 'completed', reviewed: true, report_count: 1, finding_count: 0 }
+    ],
+    stats: {
+      subagent_reports: 2,
+      selected_lenses: 2,
+      raw_findings: 0,
+      findings_total: 0,
+      findings_reported: 0,
+      verified_inline: 0,
+      demoted_to_summary: 0,
+      deduplicated_merged: 0,
+      findings_deduped: 0,
+      dropped_hallucinated_path: 0
+    },
+    ...overrides
+  })
+}
+
+function makeSevereFinding(severity, overrides = {}) {
+  return {
+    lens_id: 'security',
+    severity,
+    confidence: 'HIGH',
+    title: `${severity} legacy finding`,
+    body: 'A legacy APPROVE artifact retained this finding.',
+    path: 'src/runner.mjs',
+    line: 12,
+    line_end: 12,
+    side: 'RIGHT',
+    evidence_quote: 'return join(root, key)',
     ...overrides
   }
 }
@@ -219,6 +288,134 @@ test('publishPRReview dry_run never touches the network and writes preview files
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('publishPRReview accepts an APPROVE payload with complete unique specialist coverage', async () => {
+  let networkCalls = 0
+  const result = await publishPRReview(makeCompleteApprovePayload(), {
+    mode: 'dry_run',
+    fetchImpl: async () => {
+      networkCalls += 1
+      throw new Error('network should not be called')
+    }
+  })
+  assert.equal(networkCalls, 0)
+  assert.equal(result.verdict, 'APPROVE')
+  assert.equal(result.posted, false)
+})
+
+test('publishPRReview rejects legacy APPROVE retaining severe findings before any network in dry_run', async () => {
+  for (const severity of ['MEDIUM', 'HIGH', 'BLOCKER']) {
+    for (const field of ['inline_comments', 'summary_findings']) {
+      let networkCalls = 0
+      await assert.rejects(
+        () => publishPRReview(makeCompleteApprovePayload({
+          [field]: [makeSevereFinding(severity)]
+        }), {
+          mode: 'dry_run',
+          fetchImpl: async () => {
+            networkCalls += 1
+            throw new Error('network should not be called')
+          }
+        }),
+        (error) => error.code === ERROR_CODES.SCHEMA_INVALID && error.exitCode === EXIT_CODES.VALIDATION,
+        `dry_run APPROVE with an intact ${severity} ${field} entry must fail closed`
+      )
+      assert.equal(networkCalls, 0)
+    }
+  }
+})
+
+test('publishPRReview rejects legacy APPROVE retaining severe findings before any network in post', async () => {
+  for (const severity of ['MEDIUM', 'HIGH', 'BLOCKER']) {
+    for (const field of ['inline_comments', 'summary_findings']) {
+      let networkCalls = 0
+      await assert.rejects(
+        () => publishPRReview(makeCompleteApprovePayload({
+          [field]: [makeSevereFinding(severity)]
+        }), {
+          mode: 'post',
+          confirm: true,
+          token: 'test-token',
+          fetchImpl: async () => {
+            networkCalls += 1
+            throw new Error('network should not be called')
+          }
+        }),
+        (error) => error.code === ERROR_CODES.SCHEMA_INVALID && error.exitCode === EXIT_CODES.VALIDATION,
+        `post APPROVE with an intact ${severity} ${field} entry must fail closed`
+      )
+      assert.equal(networkCalls, 0)
+    }
+  }
+})
+
+test('publishPRReview rejects legacy zero-report APPROVE before any network in dry_run', async () => {
+  const legacyApprove = makePayload({
+    verdict: 'APPROVE',
+    intent: { ...makeCompleteApprovePayload().intent },
+    inline_comments: [],
+    summary_findings: [],
+    lens_coverage: [],
+    stats: { subagent_reports: 0, selected_lenses: 0 }
+  })
+  let networkCalls = 0
+  await assert.rejects(
+    () => publishPRReview(legacyApprove, {
+      mode: 'dry_run',
+      fetchImpl: async () => {
+        networkCalls += 1
+        throw new Error('network should not be called')
+      }
+    }),
+    (error) => error.code === ERROR_CODES.SCHEMA_INVALID && error.exitCode === EXIT_CODES.VALIDATION
+  )
+  assert.equal(networkCalls, 0)
+})
+
+test('publishPRReview allows APPROVE when severe findings are explicitly verified:false', async () => {
+  let networkCalls = 0
+  const result = await publishPRReview(makeCompleteApprovePayload({
+    inline_comments: [makeSevereFinding('BLOCKER', { verified: false })],
+    summary_findings: [makeSevereFinding('HIGH', { verified: false })]
+  }), {
+    mode: 'dry_run',
+    fetchImpl: async () => {
+      networkCalls += 1
+      throw new Error('network should not be called')
+    }
+  })
+  assert.equal(networkCalls, 0)
+  assert.equal(result.verdict, 'APPROVE')
+  assert.equal(result.posted, false)
+})
+
+test('publishPRReview rejects legacy zero-report APPROVE before any network in post', async () => {
+  const legacyApprove = makePayload({
+    verdict: 'APPROVE',
+    intent: { ...makeCompleteApprovePayload().intent },
+    inline_comments: [],
+    summary_findings: [],
+    lens_coverage: [
+      { lens_id: 'intent-alignment', status: 'completed', finding_count: 0 },
+      { lens_id: 'security', status: 'completed', finding_count: 0 }
+    ],
+    stats: { subagent_reports: 2, selected_lenses: 2 }
+  })
+  let networkCalls = 0
+  await assert.rejects(
+    () => publishPRReview(legacyApprove, {
+      mode: 'post',
+      confirm: true,
+      token: 'test-token',
+      fetchImpl: async () => {
+        networkCalls += 1
+        throw new Error('network should not be called')
+      }
+    }),
+    (error) => error.code === ERROR_CODES.SCHEMA_INVALID && error.exitCode === EXIT_CODES.VALIDATION
+  )
+  assert.equal(networkCalls, 0)
 })
 
 test('publishPRReview post refuses without confirm true', async () => {

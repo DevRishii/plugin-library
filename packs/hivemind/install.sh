@@ -18,6 +18,7 @@
 #   ~/.config/hivemind/hive-switch
 #   ~/.config/opencode/{AGENTS.md,agents/,commands/,skills/}
 #   ~/.config/opencode/skills/token-discipline/ and skills/pr-review/ (incl. lenses/)
+#   ~/.config/opencode/skills/pr-review/engine/ (bin/, src/, package.json, README.md)
 #   ~/.config/opencode/commands/stack.md + commands/stack/*.md
 #   ~/.local/bin/hive-switch
 #
@@ -29,6 +30,7 @@
 # Usage:
 #   bash install.sh
 #   bash install.sh -a chatgpt-deepseek     # also activate a stack
+#   bash install.sh -r                      # refresh ONLY PR-review assets (command, agent, skill, lenses, engine)
 #   FORCE=1 bash install.sh                 # overwrite existing prompt files
 
 set -euo pipefail
@@ -40,11 +42,13 @@ BIN_DIR="$HOME/.local/bin"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 FORCE="${FORCE:-0}"
 ACTIVATE=""
+PR_REVIEW_ONLY=0
 
-while getopts "a:h" opt; do
+while getopts "a:hr" opt; do
   case "$opt" in
     a) ACTIVATE="$OPTARG" ;;
-    h) sed -n '2,32p' "$0"; exit 0 ;;
+    r) PR_REVIEW_ONLY=1 ;;
+    h) sed -n '2,35p' "$0"; exit 0 ;;
     *) echo "unknown option" >&2; exit 2 ;;
   esac
 done
@@ -65,6 +69,49 @@ install_file() { # src dest keep_existing
   ok "$(basename "$dest")"
 }
 
+install_dir_files() { # src_dir dest_dir keep_existing
+  local src_dir="$1" dest_dir="$2" keep_existing="${3:-0}"
+  [ -d "$src_dir" ] || return 0
+  mkdir -p "$dest_dir"
+  local f
+  for f in "$src_dir"/*; do
+    [ -f "$f" ] || continue
+    install_file "$f" "$dest_dir/$(basename "$f")" "$keep_existing"
+  done
+}
+
+# Engine lives with the installed skill so the command never depends on a repo
+# checkout: ~/.config/opencode/skills/pr-review/engine/{bin,src}.
+install_pr_review_engine() { # keep_existing
+  local keep="${1:-0}"
+  local engine_src="$ROOT/../../plugins/pr-review"
+  if [ ! -d "$engine_src" ]; then
+    warn "pr-review engine source not found: $engine_src"; return 0
+  fi
+  local engine_dst="$OC_DIR/skills/pr-review/engine"
+  install_dir_files "$engine_src/bin" "$engine_dst/bin" "$keep"
+  install_dir_files "$engine_src/src" "$engine_dst/src" "$keep"
+  install_file "$engine_src/package.json" "$engine_dst/package.json" "$keep"
+  install_file "$engine_src/README.md" "$engine_dst/README.md" "$keep"
+  chmod +x "$engine_dst/bin/pr-review.mjs" 2>/dev/null || true
+}
+
+install_pr_review_assets() { # keep_existing
+  local keep="${1:-1}"
+  install_file "$ROOT/opencode/commands/pr-review.md" "$OC_DIR/commands/pr-review.md" "$keep"
+  install_file "$ROOT/opencode/agents/pr-reviewer.md" "$OC_DIR/agents/pr-reviewer.md" "$keep"
+  install_file "$ROOT/opencode/skills/pr-review/SKILL.md" "$OC_DIR/skills/pr-review/SKILL.md" "$keep"
+  if [ -d "$ROOT/opencode/skills/pr-review/lenses" ]; then
+    mkdir -p "$OC_DIR/skills/pr-review/lenses"
+    local f
+    for f in "$ROOT"/opencode/skills/pr-review/lenses/*.md; do
+      [ -f "$f" ] || continue
+      install_file "$f" "$OC_DIR/skills/pr-review/lenses/$(basename "$f")" "$keep"
+    done
+  fi
+  install_pr_review_engine "$keep"
+}
+
 echo
 echo "=================================================================="
 echo "  HIVEMIND STACK SWITCHER -> OpenCode v2 (macOS / Linux / WSL)"
@@ -78,6 +125,16 @@ fi
 
 mkdir -p "$HM_HOME/profiles" "$OC_DIR/agents" "$OC_DIR/commands/stack" \
          "$OC_DIR/skills/token-discipline" "$OC_DIR/skills/pr-review/lenses" "$BIN_DIR"
+
+if [ "$PR_REVIEW_ONLY" = "1" ]; then
+  echo
+  echo "Focused reinstall -> PR-review assets only"
+  install_pr_review_assets 0
+  echo
+  echo "Done. Profiles, AGENTS.md, opencode.json, other commands/agents, and PATH were not touched."
+  echo "Restart OpenCode Desktop once to reload the refreshed PR-review assets."
+  exit 0
+fi
 
 echo
 echo "Profiles -> $HM_HOME/profiles"
@@ -106,6 +163,7 @@ if [ -d "$ROOT/opencode/skills/pr-review/lenses" ]; then
     install_file "$f" "$OC_DIR/skills/pr-review/lenses/$(basename "$f")" 1
   done
 fi
+install_pr_review_engine 1
 
 echo
 echo "Switcher -> $BIN_DIR"

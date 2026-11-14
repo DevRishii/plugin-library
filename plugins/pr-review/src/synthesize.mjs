@@ -370,13 +370,26 @@ export function computeOverallVerdict(findings, intentReport, options = {}) {
   if (list.some((finding) => isVerified(finding) && finding.severity === 'BLOCKER')) {
     return 'REQUEST_CHANGES'
   }
-  if (list.some((finding) => isVerified(finding) && finding.severity === 'HIGH' && finding.confidence !== 'LOW')) {
+  // Any intact HIGH finding blocks, including LOW-confidence ones.
+  if (list.some((finding) => isVerified(finding) && finding.severity === 'HIGH')) {
     return 'REQUEST_CHANGES'
   }
   if (intentVerdict === 'MISALIGNED') {
     return 'REQUEST_CHANGES'
   }
+  // An intact MEDIUM blocks approval regardless of strictApprove.
+  if (list.some((finding) => isVerified(finding) && finding.severity === 'MEDIUM')) {
+    return 'COMMENT'
+  }
   if (intentVerdict === 'PARTIAL' || intentVerdict === 'UNDETERMINABLE') {
+    return 'COMMENT'
+  }
+  // APPROVE is only valid with complete, unique selected-lens coverage that
+  // includes the intent-alignment specialist report.
+  if (options.completeCoverage === false || options.hasIntentReport === false) {
+    return 'COMMENT'
+  }
+  if (intentVerdict !== 'ALIGNED') {
     return 'COMMENT'
   }
   if (options.strictApprove && list.some((finding) => ['MEDIUM', 'HIGH', 'LOW', 'NIT'].includes(finding.severity))) {
@@ -423,8 +436,36 @@ export function synthesizeReview(packet, subagentReports = [], options = {}) {
     }
   }
 
-  const intentReportSource = reports.find((report) => report.lens_id === 'intent-alignment' && report.intent_alignment)
-  const intent = evaluateIntentAlignment(packet, intentReportSource?.intent_alignment ?? null)
+  const selectedLensIds = (packet.selected_lenses ?? []).map(lensIdOf).filter((id) => typeof id === 'string')
+  const selectedLensSet = new Set(selectedLensIds)
+  const reportCountByLens = new Map()
+  for (const report of reports) {
+    if (!selectedLensSet.has(report.lens_id)) {
+      throw new ContractError(
+        ERROR_CODES.SCHEMA_INVALID,
+        `Subagent report for unselected lens "${report.lens_id}" cannot be attributed`
+      )
+    }
+    const count = reportCountByLens.get(report.lens_id) ?? 0
+    if (count > 0) {
+      throw new ContractError(
+        ERROR_CODES.SCHEMA_INVALID,
+        `Duplicate subagent report for lens "${report.lens_id}" cannot be attributed`
+      )
+    }
+    reportCountByLens.set(report.lens_id, count + 1)
+  }
+
+  const hasIntentReport = selectedLensSet.has('intent-alignment') && reportCountByLens.get('intent-alignment') === 1
+  const completeCoverage = selectedLensSet.size === selectedLensIds.length
+    && selectedLensIds.length > 0
+    && reports.length === selectedLensIds.length
+    && [...selectedLensSet].every((lensId) => reportCountByLens.get(lensId) === 1)
+
+  const intentReportSource = reports.find((report) => report.lens_id === 'intent-alignment')
+  const intentData = intentReportSource?.intent_alignment
+  const hasIntentData = Boolean(intentData && typeof intentData === 'object')
+  const intent = evaluateIntentAlignment(packet, hasIntentData ? intentData : null, { requireSpecialist: true })
 
   let findingsTotal = 0
   let droppedHallucinated = 0
@@ -471,7 +512,11 @@ export function synthesizeReview(packet, subagentReports = [], options = {}) {
     }
   })
 
-  const verdict = computeOverallVerdict(canonicalFindings, intent, options)
+  const verdict = computeOverallVerdict(canonicalFindings, intent, {
+    ...options,
+    completeCoverage,
+    hasIntentReport
+  })
   const draftPayload = {
     schema_version: SCHEMA_VERSION,
     pr_ref: packet.pr_ref,

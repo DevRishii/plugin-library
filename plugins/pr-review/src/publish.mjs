@@ -91,6 +91,8 @@ async function githubRequest(context, method, path, body) {
 }
 
 export async function publishPRReview(payload, options = {}) {
+  // Fail closed before any dry-run write or network call: contract validation
+  // rejects stale/legacy APPROVE artifacts whose coverage is incomplete.
   const review = validateOrchestratedPRReviewPayload(payload)
   const markdownBody = review.markdown_body || renderReviewMarkdown(review)
   const mode = options.mode ?? 'dry_run'

@@ -568,6 +568,9 @@ export function validateReviewFinding(finding, expectedLensId = null) {
   if (!finding || typeof finding !== 'object') {
     throw new ContractError(ERROR_CODES.SCHEMA_INVALID, 'ReviewFinding must be an object')
   }
+  if (expectedLensId && finding.lens_id != null && finding.lens_id !== expectedLensId) {
+    throw new ContractError(ERROR_CODES.SCHEMA_INVALID, `Finding lens_id must match report lens_id: ${expectedLensId}`)
+  }
   const lensId = finding.lens_id ?? expectedLensId
   if (!LENS_BY_ID[lensId]) {
     throw new ContractError(ERROR_CODES.SCHEMA_INVALID, `Unknown lens_id on finding: ${lensId}`)
@@ -633,6 +636,12 @@ export function validateSubagentReviewReport(report) {
       `SubagentReviewReport for ${report.lens_id} exceeds MAX_FINDINGS_PER_LENS (${BUDGETS.MAX_FINDINGS_PER_LENS})`
     )
   }
+  if (report.intent_alignment != null) {
+    if (report.lens_id !== 'intent-alignment') {
+      throw new ContractError(ERROR_CODES.SCHEMA_INVALID, 'Only intent-alignment reports may carry intent_alignment')
+    }
+    validateIntentAlignmentReport(report.intent_alignment)
+  }
   const normalizedFindings = report.findings.map((f) => validateReviewFinding(f, report.lens_id))
   return {
     ...report,
@@ -685,6 +694,20 @@ export function validateOrchestratedPRReviewPayload(payload) {
       ERROR_CODES.SCHEMA_INVALID,
       `Cannot APPROVE PR when intent alignment verdict is ${payload.intent.verdict}`
     )
+  }
+  if (payload.verdict === 'APPROVE') {
+    if ([...payload.inline_comments, ...payload.summary_findings].some((finding) =>
+      finding?.verified !== false && ['MEDIUM', 'HIGH', 'BLOCKER'].includes(finding?.severity))) {
+      throw new ContractError(ERROR_CODES.SCHEMA_INVALID, 'Cannot APPROVE PR with intact MEDIUM-or-worse findings')
+    }
+    const coverage = payload.lens_coverage
+    const ids = new Set(coverage.map((entry) => entry?.lens_id))
+    if (coverage.length === 0 || ids.size !== coverage.length ||
+        coverage.some((entry) => !LENS_BY_ID[entry?.lens_id] || entry.status !== 'completed' || entry.reviewed !== true || entry.report_count !== 1) ||
+        !ids.has('intent-alignment') ||
+        payload.stats?.selected_lenses !== coverage.length || payload.stats?.subagent_reports !== coverage.length) {
+      throw new ContractError(ERROR_CODES.SCHEMA_INVALID, 'Cannot APPROVE PR without complete, unique specialist report coverage including intent-alignment')
+    }
   }
   return payload
 }

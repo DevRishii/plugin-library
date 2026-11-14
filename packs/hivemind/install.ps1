@@ -18,6 +18,7 @@
     %USERPROFILE%\.config\hivemind\hive-switch.ps1
     %USERPROFILE%\.config\opencode\AGENTS.md, agents\, commands\, skills\
     %USERPROFILE%\.config\opencode\skills\token-discipline\ and skills\pr-review\ (incl. lenses\)
+    %USERPROFILE%\.config\opencode\skills\pr-review\engine\ (bin\, src\, package.json, README.md)
     %USERPROFILE%\.config\opencode\commands\stack.md + commands\stack\*.md
     %USERPROFILE%\.local\bin\hive-switch.cmd + hive-switch.ps1 (forwarder)
 
@@ -30,11 +31,15 @@
     powershell -ExecutionPolicy Bypass -File install.ps1
     powershell -ExecutionPolicy Bypass -File install.ps1 -Activate chatgpt-deepseek
     powershell -ExecutionPolicy Bypass -File install.ps1 -Force   # overwrite prompt files
+    powershell -ExecutionPolicy Bypass -File install.ps1 -ReinstallPRReview
+        # refresh ONLY the PR-review command, agent, skill, lenses, and engine;
+        # leaves profiles, AGENTS.md, opencode.json, other commands/agents, and PATH untouched
 #>
 [CmdletBinding()]
 param(
   [string]$Activate = '',
-  [switch]$Force
+  [switch]$Force,
+  [switch]$ReinstallPRReview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +67,41 @@ function Install-File([string]$Source, [string]$Dest, [switch]$KeepExisting) {
   Ok (Split-Path $Dest -Leaf)
 }
 
+function Install-DirFiles([string]$SourceDir, [string]$DestDir, [switch]$KeepExisting) {
+  if (-not (Test-Path $SourceDir)) { return }
+  New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
+  Get-ChildItem $SourceDir -File | ForEach-Object {
+    Install-File $_.FullName (Join-Path $DestDir $_.Name) -KeepExisting:$KeepExisting
+  }
+}
+
+# The engine lives with the installed skill so the command never depends on a
+# repository checkout: ~/.config/opencode/skills/pr-review/engine/{bin,src}.
+function Install-PRReviewEngine([switch]$KeepExisting) {
+  $engineSrc = Join-Path (Split-Path -Parent (Split-Path -Parent $Root)) 'plugins\pr-review'
+  if (-not (Test-Path $engineSrc)) { Warn "pr-review engine source not found: $engineSrc"; return }
+  $engineDst = Join-Path $OcDir 'skills\pr-review\engine'
+  Install-DirFiles (Join-Path $engineSrc 'bin') (Join-Path $engineDst 'bin') -KeepExisting:$KeepExisting
+  Install-DirFiles (Join-Path $engineSrc 'src') (Join-Path $engineDst 'src') -KeepExisting:$KeepExisting
+  Install-File (Join-Path $engineSrc 'package.json') (Join-Path $engineDst 'package.json') -KeepExisting:$KeepExisting
+  Install-File (Join-Path $engineSrc 'README.md') (Join-Path $engineDst 'README.md') -KeepExisting:$KeepExisting
+}
+
+function Install-PRReviewAssets([switch]$Overwrite) {
+  $keep = -not $Overwrite
+  Install-File (Join-Path $Root 'opencode\commands\pr-review.md') (Join-Path $OcDir 'commands\pr-review.md') -KeepExisting:$keep
+  Install-File (Join-Path $Root 'opencode\agents\pr-reviewer.md') (Join-Path $OcDir 'agents\pr-reviewer.md') -KeepExisting:$keep
+  Install-File (Join-Path $Root 'opencode\skills\pr-review\SKILL.md') (Join-Path $OcDir 'skills\pr-review\SKILL.md') -KeepExisting:$keep
+  $srcLenses = Join-Path $Root 'opencode\skills\pr-review\lenses'
+  if (Test-Path $srcLenses) {
+    New-Item -ItemType Directory -Path (Join-Path $OcDir 'skills\pr-review\lenses') -Force | Out-Null
+    Get-ChildItem (Join-Path $srcLenses '*.md') | ForEach-Object {
+      Install-File $_.FullName (Join-Path (Join-Path $OcDir 'skills\pr-review\lenses') $_.Name) -KeepExisting:$keep
+    }
+  }
+  Install-PRReviewEngine -KeepExisting:$keep
+}
+
 Say ""
 Say "=================================================================="
 Say "  HIVEMIND STACK SWITCHER -> OpenCode v2 (Windows)"
@@ -75,6 +115,16 @@ foreach ($d in @((Join-Path $HmHome 'profiles'), (Join-Path $OcDir 'agents'), (J
                  (Join-Path $OcDir 'commands\stack'), (Join-Path $OcDir 'skills\token-discipline'),
                  (Join-Path $OcDir 'skills\pr-review\lenses'), $BinDir)) {
   New-Item -ItemType Directory -Path $d -Force | Out-Null
+}
+
+if ($ReinstallPRReview) {
+  Say ""
+  Say "Focused reinstall -> PR-review assets only"
+  Install-PRReviewAssets -Overwrite
+  Say ""
+  Say "Done. Profiles, AGENTS.md, opencode.json, other commands/agents, and PATH were not touched."
+  Say "Restart OpenCode Desktop once to reload the refreshed PR-review assets."
+  exit 0
 }
 
 Say ""
@@ -108,6 +158,7 @@ foreach ($skill in 'token-discipline', 'pr-review') {
     }
   }
 }
+Install-PRReviewEngine -KeepExisting
 
 Say ""
 Say "Switcher -> $HmHome + $BinDir"

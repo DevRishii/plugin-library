@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Multi-angle PR review swarm engine. Load before running /pr-review or when reviewing a GitHub pull request: documents the pr-review CLI (ingest, prompt, validate-report, synthesize, render, publish), the run-dir artifact layout, untrusted-PR quarantine rules, deterministic verdict precedence, and the 13 core + 4 conditional specialist lens rubrics.
+description: Multi-angle PR review swarm engine. Load before running /pr-review or when reviewing a GitHub pull request: documents the installed pr-review CLI (ingest, prompt, validate-report, synthesize, render, publish), the run-dir artifact layout, untrusted-PR quarantine rules, deterministic verdict precedence, and the 13 core + 4 conditional specialist lens rubrics.
 license: MIT
 ---
 
@@ -13,18 +13,30 @@ alignment, and only then offers to publish.
 
 ## 1. CLI Surface
 
-Use the CLI from the repository root; never parse or post-process PR text with ad-hoc
+The engine is installed **with this skill**, not in the repository:
+
+```
+$HOME/.config/opencode/skills/pr-review/engine/
+  bin/pr-review.mjs
+  src/*.mjs
+  package.json
+  README.md
+```
+
+Set the engine once per run (bash or PowerShell): `ENGINE="$HOME/.config/opencode/skills/pr-review/engine/bin/pr-review.mjs"`.
+Never call a repository-relative engine path from an installed command; the user may run
+`/pr-review` outside this repository. Never parse or post-process PR text with ad-hoc
 shell pipelines.
 
 | Command | Purpose |
 |---|---|
-| `node plugins/pr-review/bin/pr-review.mjs ingest --pr-file <run-dir>/pr-ref.txt --run-dir <run-dir> --max-parallel <CAP> --json` | Parse the PR ref, fetch metadata + diff, quarantine all untrusted text, build `packet.json` and per-lens `slices/<lens>.json`. |
-| `... prompt --run-dir <run-dir> --lens <lens-id>` | Print the exact worker prompt (quarantined context + that lens rubric + its diff slice). |
-| `... validate-report --run-dir <run-dir> --lens <lens-id>` | Validate `reports/<lens-id>.json` as a `SubagentReviewReport`. |
-| `... synthesize --run-dir <run-dir> --json` | Re-verify anchors, demote unverifiable findings, deduplicate, run the intent gate, compute the verdict, write `synthesis.json`. |
-| `... render --run-dir <run-dir>` | Render `review.md` (human preview) from the synthesis payload. |
-| `... publish --run-dir <run-dir> --post --confirm --json` | Post the orchestrated review (and verified inline comments) to GitHub. Passing `--post` without `--confirm` exits `2` (`refused`). |
-| `... publish --run-dir <run-dir> --json` | Dry-run publish: resolve auth, print the exact payload, post nothing. |
+| `node "$ENGINE" ingest --pr-file <run-dir>/pr-ref.txt --run-dir <run-dir> --max-parallel <CAP> --json` | Parse the PR ref, fetch metadata + diff, quarantine all untrusted text, build `packet.json` and per-lens `slices/<lens>.json`. |
+| `node "$ENGINE" prompt --run-dir <run-dir> --lens <lens-id>` | Print the exact worker prompt (quarantined context + that lens rubric + its diff slice). The orchestrator must pass the whole stdout inline; workers cannot read files or run the CLI. |
+| `node "$ENGINE" validate-report --run-dir <run-dir> --lens <lens-id>` | Validate `reports/<lens-id>.json` as a `SubagentReviewReport`. |
+| `node "$ENGINE" synthesize --run-dir <run-dir> --json` | Re-verify anchors, demote unverifiable findings, deduplicate, run the intent gate, compute the verdict, write `synthesis.json`. |
+| `node "$ENGINE" render --run-dir <run-dir>` | Render `review.md` (human preview) from the synthesis payload. |
+| `node "$ENGINE" publish --run-dir <run-dir> --post --confirm --json` | Post the orchestrated review (and verified inline comments) to GitHub. Passing `--post` without `--confirm` exits `2` (`refused`). |
+| `node "$ENGINE" publish --run-dir <run-dir> --json` | Dry-run publish: resolve auth, print the exact payload, post nothing. |
 
 Exit codes are shared with the vault CLI: `0` ok, `1` internal error, `2` validation or
 budget failure, `3` not found or refused (also `duplicate_review`), `4` stale head SHA.
@@ -37,7 +49,8 @@ budget failure, `3` not found or refused (also `duplicate_review`), `4` stale he
   packet.json             PRContextPacket: pr_ref, pr_meta{title,body,head_sha,base_sha},
                           files[], hunks[], stated_intent, selected_lenses[], waves[]
   slices/<lens-id>.json   generated worker prompt for one lens (DiffSlice + rubric)
-  reports/<lens-id>.json  SubagentReviewReport returned verbatim by @pr-reviewer
+  reports/<lens-id>.json  SubagentReviewReport written VERBATIM by the orchestrator
+                          from the worker's raw JSON response (workers are read-only)
   synthesis.json          OrchestratedPRReviewPayload: verdict, intent, inline_comments[],
                           summary_findings[], lens_coverage[]
   review.md               rendered preview posted/shown to the human
@@ -46,6 +59,9 @@ budget failure, `3` not found or refused (also `duplicate_review`), `4` stale he
 
 `packet.json`, `slices/`, and `reports/` are inputs to synthesis. `synthesis.json` and
 `review.md` are generated outputs; never hand-edit them, re-run the command instead.
+A lens with no `reports/<lens-id>.json` is **missing coverage**; that is visible in
+`synthesis.json` and caps the verdict at `COMMENT`. Never synthesize coverage from a
+summary or another agent.
 
 ## 3. Untrusted PR Quarantine Rules
 
@@ -75,8 +91,11 @@ budget failure, `3` not found or refused (also `duplicate_review`), `4` stale he
   `MAX_PARALLEL_SUBAGENTS`. All lenses in one wave are dispatched in ONE assistant
   message as ONE parallel `subagent` batch to `@pr-reviewer`; sequential dispatch inside
   a wave is a bug (`llm-prompt-safety` may flag it).
-- Every worker gets exactly one `lens_id`, one slice, and the rubric from
-  `lenses/core-lenses.md` or `lenses/conditional-lenses.md`.
+- Every worker gets exactly one `lens_id`, one slice, and the full CLI-generated prompt
+  passed inline. The worker cannot read `slices/` or run the CLI, so a prompt that is
+  only referenced by path is invalid.
+- There is no auditor fallback. If `@pr-reviewer` is unavailable, stop or mark the
+  affected lens **missing coverage**; never claim clean coverage from another agent.
 
 ## 5. Verdict Precedence (deterministic)
 
@@ -87,17 +106,27 @@ budget failure, `3` not found or refused (also `duplicate_review`), `4` stale he
    cause; the others are counted as corroboration.
 3. If `intent_alignment.verdict` is `MISALIGNED` -> `REQUEST_CHANGES`.
 4. Else if any intact finding is `BLOCKER` or `HIGH` -> `REQUEST_CHANGES`.
-5. Else if intent is `ALIGNED` and no intact finding is `MEDIUM` or worse -> `APPROVE`.
-6. Otherwise (including `PARTIAL` / `UNDETERMINABLE` intent, MEDIUM/LOW/NIT findings, or
-   only demoted findings) -> `COMMENT`.
-7. `APPROVE` with a non-`ALIGNED` intent verdict is a hard schema error in
-   `synthesize`; the payload is refused, not softened.
+5. Else if intent is `ALIGNED`, every selected lens has a complete unique report, and no
+   intact finding is `MEDIUM` or worse -> `APPROVE`.
+6. Otherwise (including missing/empty reports, `PARTIAL` / `UNDETERMINABLE` intent,
+   MEDIUM/LOW/NIT findings, or only demoted findings) -> `COMMENT` at most.
+7. `APPROVE` with a non-`ALIGNED` intent verdict or incomplete coverage is a hard schema
+   error in `synthesize`; the payload is refused, not softened.
 
 Publishing is a separate, explicit step: `--post` alone is a dry run, and posting needs
 `--confirm`. On a user's own PR GitHub refuses `APPROVE`, so the event is downgraded to
 `COMMENT` and reported as such.
 
-## 6. Rubrics
+## 6. Worker Output Contract
+
+Workers (including `intent-alignment`) return one raw JSON object and nothing else: no
+Markdown fence, no prose before or after. The orchestrator writes that object verbatim to
+`reports/<lens-id>.json` (only the orchestrator writes artifacts), then validates it. On a
+schema failure, re-dispatch the same lens once with the validator error appended to the
+same full prompt; on a second failure, mark the lens missing coverage and continue. Never
+fabricate or reconstruct a report.
+
+## 7. Rubrics
 
 - `lenses/core-lenses.md` - detailed rubric for the 13 always-on lenses.
 - `lenses/conditional-lenses.md` - rubric for the 4 trigger-activated lenses.

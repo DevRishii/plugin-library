@@ -220,6 +220,15 @@ function loadPacket(flags) {
   )
 }
 
+function loadOptionalPacket(flags, runDir) {
+  if (typeof flags.packet === 'string') return readPacketFile(resolve(flags.packet))
+  if (runDir) {
+    const packetPath = join(runDir, 'packet.json')
+    if (existsSync(packetPath)) return readPacketFile(packetPath)
+  }
+  return null
+}
+
 function loadPayloadPath(flags, positionals) {
   if (typeof flags.payload === 'string') return resolve(flags.payload)
   if (positionals.length > 0) return resolve(positionals[0])
@@ -576,6 +585,21 @@ async function commandPublish(ctx) {
   const payload = readJsonFile(payloadPath, 'Orchestrated PR review payload')
   const runDir = typeof flags['run-dir'] === 'string' ? resolve(flags['run-dir']) : null
 
+  // Cross-check the synthesized payload against the run-dir packet so a stale
+  // artifact cannot be published (or previewed) against a different head.
+  const packet = loadOptionalPacket(flags, runDir)
+  if (packet) {
+    const payloadHead = String(payload?.head_sha ?? '').toLowerCase()
+    const packetHead = String(packet.pr_meta?.head_sha ?? '').toLowerCase()
+    if (!payloadHead || payloadHead !== packetHead) {
+      throw new ContractError(
+        ERROR_CODES.STALE_HEAD_SHA,
+        `Payload head_sha ${payload?.head_sha ?? '(missing)'} does not match packet head_sha ${packet.pr_meta?.head_sha ?? '(missing)'}`,
+        EXIT_CODES.STALE_HEAD
+      )
+    }
+  }
+
   const result = await publishPRReview(payload, {
     mode: flags.post ? 'post' : 'dry_run',
     confirm: Boolean(flags.confirm),
@@ -688,8 +712,28 @@ function commandSelftest(ctx) {
   if (!INTENT_VERDICTS.includes(intent.verdict) || !SEVERITIES.includes('BLOCKER')) {
     throw new ContractError(ERROR_CODES.INTERNAL, 'Intent self-test failed', EXIT_CODES.INTERNAL)
   }
-  const synthesized = synthesizeReview(packet, [], { renderMarkdown: renderReviewMarkdown })
-  if (!synthesized.markdown_body.includes(REVIEW_MARKER) || !prompt.includes('[NEW:2]')) {
+  const synthesized = synthesizeReview(packet, [{
+    schema_version: SCHEMA_VERSION,
+    lens_id: 'intent-alignment',
+    head_sha: packet.pr_meta.head_sha,
+    findings: [],
+    summary: 'Selftest requires undeterminable intent until every specialist report is complete.',
+    intent_alignment: {
+      verdict: 'UNDETERMINABLE',
+      has_problem_statement: true,
+      has_solution: true,
+      claim_mappings: [],
+      scope_creep_files: [],
+      unfulfilled_claims: [],
+      summary: 'No complete specialist report coverage is available in this self-test.'
+    }
+  }], { renderMarkdown: renderReviewMarkdown })
+  if (
+    !synthesized.markdown_body.includes(REVIEW_MARKER)
+    || synthesized.verdict !== 'COMMENT'
+    || synthesized.intent.verdict !== 'UNDETERMINABLE'
+    || !prompt.includes('[NEW:2]')
+  ) {
     throw new ContractError(ERROR_CODES.INTERNAL, 'Synthesis/render self-test failed', EXIT_CODES.INTERNAL)
   }
 
